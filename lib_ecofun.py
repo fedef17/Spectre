@@ -33,8 +33,11 @@ def sigmoid(x, delta = 1):
     return 1/(1+np.exp(-x/delta))
 
 
-def GDP(Y, growth = 0.01):
-    return Y * (1+growth)
+def GDP(Y, growth = 0.01, invert_time = False):
+    if not invert_time:
+        return Y * (1+growth)
+    else:
+        return Y/(1+growth)
 
 
 ########################### parameters ###########################################################################
@@ -152,15 +155,150 @@ def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', verbose 
     ## for next step
     ## Capital/infrastructure
     if verbose and Ig < Kg*delta_g: print(f'Green infrastructure decreasing! {Ig} < {Kg*delta_g}')
-    Kg = Ig + Kg * (1-delta_g)
     if verbose and If < Kf*delta_f: print(f'Fossil infrastructure decreasing! {If} < {Kf*delta_f}')
+    Kg = Ig + Kg * (1-delta_g)
     Kf = If + Kf * (1-delta_f)
     Y = GDP(Y, growth = growth)
+
+    # else: # going backwards
+    #     Kg = (Kg - Ig)/(1-delta_g)
+    #     Kf = (Kf - If)/(1-delta_f)
+    #     Y = GDP(Y, growth = growth, invert_time = True)
 
     return Y, Kg, Kf, E, Eg, Ef, success
 
 
-def run_model(inicond = default_inicond, params = default_params, n_iter = 100, rule = 'maxgreen', verbose = True):
+def define_Eg(E, Kg, Kf, a, b, f_heavy, rule = 'maxgreen', verbose = False):
+    # Energy and infrastructure
+    Eg_max = a * Kg # a = 1
+    Ef_max = b * Kf # b time dependent, exog. should decrease to 0
+
+    if Eg_max + Ef_max < E: 
+        success = 2
+        if verbose: print(f'Energy scarcity! {Eg_max} {Ef_max} {E}')
+        # raise ValueError(f'Energy scarcity! {Eg_max} {Ef_max} {E}')
+
+    if rule == 'maxgreen':
+        Eg = Eg_max
+        Ef = E-Eg
+        if Eg > E:
+            Eg = E
+            Ef = 0.
+    elif rule == 'proportional':
+        Eg = Kg/(Kg+Kf) * E
+        Ef = Kf/(Kg+Kf) * E
+    elif rule == 'whole_capacity': # This makes Y useless
+        Eg = Kg
+        Ef = Kf
+    elif rule == 'fossil_constraint': # military and heavy industry keep using fossil
+        Ef_min = f_heavy * Y
+        if E-Ef_min < Eg_max:
+            Ef = Ef_min
+            Eg = E-Ef_min
+        else:
+            Eg = Eg_max
+            Ef = E-Eg
+    
+    return Eg, Ef
+
+
+def backward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', verbose = False):
+    """
+    A single iteration of the model.
+    """
+    success = 0
+
+    #### params ####
+    growth = params['growth']
+    eps = params['eps']
+    a = params['a']
+    b = params['b']
+    gamma_g = params['gamma_g']
+    gamma_f = params['gamma_f']
+    eta_g = params['eta_g']
+    eta_f = params['eta_f']
+    h_g = params['h_g']
+    h_f = params['h_f']
+    r_inv = params['r_inv']
+    beta_0 = params['beta_0']
+    delta_sig = params['delta_sig']
+    delta_g = params['delta_g']
+    delta_f = params['delta_f']
+    f_heavy = params['f_heavy']
+    #########
+
+    ## Total production?
+    # opt 1: exogenous growing Y, tot energy proportional to Y
+    Y = GDP(Y, growth = growth, invert_time=True)
+    E = eps * Y
+
+    # Loop to define K
+    max_iter = 20
+    ii = 0
+    thres = 1e-4
+    Kgit = Kg
+    Kfit = Kf
+    cond = True
+    while cond or ii > max_iter:
+        if verbose: print('ITeration:', ii)
+        Eg, Ef = define_Eg(E, Kgit, Kfit, a, b, f_heavy, rule = rule)
+
+        ## Profit of energy production of previous step
+        Pg = gamma_g * (Eg - eta_g * Eg**h_g)
+        Pf = gamma_f * (Ef - eta_f * Ef**h_f)
+        if Pf < 0.: Pf = gamma_f * (1 - eta_f) * Ef # linearity for small Ef
+        if Pg < 0.: Pg = gamma_g * (1 - eta_g) * Eg # linearity for small Eg
+
+        ## Investment in energy production
+        beta_2 = 1 - beta_0 # sums to 1
+        beta = (beta_0 + beta_2*sigmoid((Pg/Kg - Pf/Kf)/(Pf/Kf), delta = delta_sig)) # fraction of green investment: should be limited between 0 and 1
+        #if verbose: print(beta, (Pg/Kg - Pf/Kf)/(Pf/Kf), Eg, Ef, Pg, Pf)
+        
+        Ig = beta * r_inv * (Pg + Pf)
+        If = (1-beta) * r_inv * (Pg + Pf)
+        #if verbose: print(Ig, If)
+
+        Kgit_old = Kgit
+        Kfit_old = Kfit
+
+        Kgit = (Kg - Ig)/(1-delta_g)
+        Kfit = (Kf - If)/(1-delta_f)
+
+        if verbose: print(Kgit, Kgit_old)
+
+        cond = abs((Kgit-Kgit_old)/Kgit) > thres
+        ii +=1
+    
+    Kg = Kgit
+    Kf = Kfit
+    
+    # if E == Eg: 
+    #     if verbose: print('Transition completed!')
+    #     success = 1
+
+    # ## Profit of energy production of previous step
+    # Pg = gamma_g * (Eg - eta_g * Eg**h_g)
+    # Pf = gamma_f * (Ef - eta_f * Ef**h_f)
+    # if Pf < 0.: Pf = gamma_f * (1 - eta_f) * Ef # linearity for small Ef
+    # if Pg < 0.: Pg = gamma_g * (1 - eta_g) * Eg # linearity for small Eg
+
+    # ## Investment in energy production
+    # beta_2 = 1 - beta_0 # sums to 1
+    # beta = (beta_0 + beta_2*sigmoid((Pg/Kg - Pf/Kf)/(Pf/Kf), delta = delta_sig)) # fraction of green investment: should be limited between 0 and 1
+    # if verbose: print(beta, (Pg/Kg - Pf/Kf)/(Pf/Kf), Eg, Ef, Pg, Pf)
+    
+    # Ig = beta * r_inv * (Pg + Pf)
+    # If = (1-beta) * r_inv * (Pg + Pf)
+    # if verbose: print(Ig, If)
+
+    # Kg = (Kg - Ig)/(1-delta_g)
+    # Kf = (Kf - If)/(1-delta_f)
+
+    return Y, Kg, Kf, E, Eg, Ef, success
+
+
+
+def run_model(inicond = default_inicond, params = default_params, n_iter = 100, rule = 'maxgreen', verbose = True, run_backwards = False):
     """
 
     Runs the model. Returns list of lists of outputs: [Y, Kg, Kf, E, Eg, Ef]  (can be improved!)
@@ -174,7 +312,11 @@ def run_model(inicond = default_inicond, params = default_params, n_iter = 100, 
     Kf = inicond['Kf_ini']
     resu = []
     for i in range(n_iter):
-        Y, Kg, Kf, E, Eg, Ef, success = forward_step(Y, Kg, Kf, params = params, verbose = verbose, rule = rule)
+        if not run_backwards:
+            Y, Kg, Kf, E, Eg, Ef, success = forward_step(Y, Kg, Kf, params = params, verbose = verbose, rule = rule)
+        else:
+            Y, Kg, Kf, E, Eg, Ef, success = backward_step(Y, Kg, Kf, params = params, verbose = verbose, rule = rule)
+
         resu.append([Y, Kg, Kf, E, Eg, Ef])
         if success == 0: 
             continue
@@ -185,28 +327,29 @@ def run_model(inicond = default_inicond, params = default_params, n_iter = 100, 
             if verbose: print(f'Energy scarcity at time: {i}!')
             break
     
-    resu = rebuild_resu(resu)
+    resu = rebuild_resu(resu, run_backwards = run_backwards)
     
-    if success == 1: 
-        resu['success'] = True
-        resu['year_zero'] = i
-        resu['year_peak'] = np.argmax(resu['Ef'])
+    if not run_backwards:
+        if success == 1: 
+            resu['success'] = True
+            resu['year_zero'] = i
+            resu['year_peak'] = np.argmax(resu['Ef'])
 
-        for ye in range(resu['year_peak'], len(resu['Ef'])):
-            if resu['Ef'][ye] <= resu['Ef'][resu['year_peak']]/2.: break
-        resu['year_halved'] = ye
-        if verbose: print('Peak fossil: {}'.format(resu['year_peak']))
-        if verbose: print('Halved fossil: {}'.format(resu['year_halved']))
-    else:
-        resu['success'] = False
-        resu['year_zero'] = np.nan
-        resu['year_peak'] = np.nan
-        resu['year_halved'] = np.nan
+            for ye in range(resu['year_peak'], len(resu['Ef'])):
+                if resu['Ef'][ye] <= resu['Ef'][resu['year_peak']]/2.: break
+            resu['year_halved'] = ye
+            if verbose: print('Peak fossil: {}'.format(resu['year_peak']))
+            if verbose: print('Halved fossil: {}'.format(resu['year_halved']))
+        else:
+            resu['success'] = False
+            resu['year_zero'] = np.nan
+            resu['year_peak'] = np.nan
+            resu['year_halved'] = np.nan
 
     return resu
 
 
-def rebuild_resu(resu):
+def rebuild_resu(resu, run_backwards = False):
     resu = np.stack(resu)
     Ys = resu[:, 0]
     Kgs = resu[:, 1]
@@ -214,6 +357,13 @@ def rebuild_resu(resu):
     E = resu[:, 3]
     Eg = resu[:, 4]
     Ef = resu[:, 5]
+    if run_backwards:
+        Ys = Ys[::-1]
+        Kgs = Kgs[::-1]
+        Kfs = Kfs[::-1]
+        E = E[::-1]
+        Eg = Eg[::-1]
+        Ef = Ef[::-1]
 
     ok_resu = dict()
     ok_resu['Y'] = Ys
@@ -340,6 +490,64 @@ def plot_sens_param(vals, nominal, all_resu, plot_type = 'tuning'):
     plt.legend()
 
     return fig, fig2, fig3
+
+
+def plot_resuvsobs(resu, year_ini = 2015, ind_ini = 0, ind_fin = 20):
+    """
+    Plots outputs vs observed green investment and green energy share.
+    """
+
+    fig = plt.figure()
+    Ig = np.diff(resu['Kg'])
+    If = np.diff(resu['Kf'])
+
+    plt.plot(np.arange(year_ini, year_ini + (ind_fin-ind_ini)), (Ig/(Ig+If))[ind_ini:ind_fin], label = 'model', color = 'black')
+    plt.plot(np.arange(2015, 2024), Ig_obs/(Ig_obs+If_obs), label = 'obs', color = 'orange')
+
+    plt.xlabel('time')
+    plt.ylabel('Green share of energy investment (beta)')
+    plt.legend()
+
+    fig2 = plt.figure()
+    plt.plot(np.arange(year_ini, year_ini + (ind_fin-ind_ini)), (100*resu['Eg']/resu['E'])[ind_ini:ind_fin], label = 'model', color = 'black')
+    plt.plot(np.arange(2015, 2024), Eg_ratio_ok, label = 'obs', color = 'orange')
+
+    plt.xlabel('time')
+    plt.ylabel('Share of renewable energy')
+    plt.legend()
+
+    return fig, fig2
+
+
+def plot_hist(resu, year_ini = 1950, year_fin = 2023):
+    """
+    Plots outputs vs observed green investment and green energy share.
+    """
+
+    fig = plt.figure()
+    Ig = np.diff(resu['Kg'])
+    If = np.diff(resu['Kf'])
+
+    maxlen = len(If)
+
+    year_ini = max([year_ini, year_fin-maxlen+1])
+
+    plt.plot(np.arange(year_ini, year_fin + 1), (Ig/(Ig+If))[-(year_fin-year_ini+1):], label = 'model', color = 'black')
+    plt.plot(np.arange(2015, 2024), Ig_obs/(Ig_obs+If_obs), label = 'obs', color = 'orange')
+
+    plt.xlabel('time')
+    plt.ylabel('Green share of energy investment (beta)')
+    plt.legend()
+
+    fig2 = plt.figure()
+    plt.plot(np.arange(year_ini, year_fin + 1), (100*resu['Eg']/resu['E'])[-(year_fin-year_ini+1):], label = 'model', color = 'black')
+    plt.plot(np.arange(1965, 2024), Eg_ratio, label = 'obs', color = 'orange')
+
+    plt.xlabel('time')
+    plt.ylabel('Share of renewable energy')
+    plt.legend()
+
+    return fig, fig2
 
 
 def plot_resu(resu):
