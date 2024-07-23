@@ -3,6 +3,7 @@
 import numpy as np
 from matplotlib import pyplot as plt
 import matplotlib.cm as cm
+import scipy
 
 ################################################################################################################
 ######################################## Useful data
@@ -70,8 +71,43 @@ default_inicond = {'Y_ini' : 1, 'Kg_ini' : 0.1, 'Kf_ini' : 0.9}
 
 ########################### parameters ###########################################################################
 
+def cdf(x, mu = 0., sigma = 1.):
+    # Compute the integral using the cumulative distribution function (CDF)
+    cdf = 0.5 * (1 + scipy.special.erf((x - mu) / (sigma * np.sqrt(2))))
+    return cdf
 
-def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', verbose = False):
+
+def beta_fun(beta_0, prof_ratio, delta_sig = 1., ftype = 'cdf'):
+    """
+    Defines fraction of green investment: should be limited between 0 and 1.
+
+    New function cdf assumes gaussian investment around a mean that changes with expected profit and external factors:
+        - investment is done randomly and represented by a gaussian distribution
+        - the mean value is zero for equal expected profit, or can be different from zero
+        - the integral below/above zero gives the two investment ratios
+
+        the dynamics is governed by the ratio between the shift from zero of the mean and the width of the gaussian
+
+        beta_0 is also a displacement
+    """
+    
+    if ftype == 'cdf':
+        beta = cdf(0., mu = -(beta_0 + prof_ratio), sigma = delta_sig)
+    else:
+        beta_2 = 1 - beta_0 # sums to 1
+        beta = (beta_0 + beta_2*sigmoid(prof_ratio, delta = delta_sig)) 
+
+    return beta
+
+
+def prof_ratio(Pg, Pf, Kg, Kf):
+    """
+    Estimates the ratio of profits per unit investment (normalized).
+    """
+    return (Pg/Kg - Pf/Kf)/(Pg/Kg+Pf/Kf)
+    #return (Pg/Kg - Pf/Kf)/((Pg+Pf)/(Kg+Kf))
+
+def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_type = 'cdf', verbose = False, raise_bnd_err = False):
     """
     A single iteration of the model.
     """
@@ -118,6 +154,12 @@ def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', verbose 
     elif rule == 'proportional':
         Eg = Kg/(Kg+Kf) * E
         Ef = Kf/(Kg+Kf) * E
+    elif rule == 'fair':
+        if Ef_max >= E/2.:
+            Ef = E/2.
+        else:
+            Ef = Ef_max
+        Eg = E - Ef
     elif rule == 'whole_capacity': # This makes Y useless
         Eg = Kg
         Ef = Kf
@@ -144,13 +186,12 @@ def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', verbose 
     if Pg < 0.: Pg = gamma_g * (1 - eta_g) * Eg # linearity for small Eg
 
     ## Investment in energy production
-    beta_2 = 1 - beta_0 # sums to 1
-    beta = (beta_0 + beta_2*sigmoid((Pg/Kg - Pf/Kf)/(Pf/Kf), delta = delta_sig)) # fraction of green investment: should be limited between 0 and 1
-    if verbose: print(beta, (Pg/Kg - Pf/Kf)/(Pf/Kf), Eg, Ef, Pg, Pf)
+    pr = prof_ratio(Pg, Pf, Kg, Kf)
+    beta = beta_fun(beta_0, pr, delta_sig = delta_sig, ftype = betafun_type)
     
     Ig = beta * r_inv * (Pg + Pf)
     If = (1-beta) * r_inv * (Pg + Pf)
-    if verbose: print(Ig, If)
+    if verbose: print((8*'{:10.2f}').format(beta, (Pg/Kg - Pf/Kf)/(Pf/Kf), Eg, Ef, Pg, Pf, Ig, If))
 
     ## for next step
     ## Capital/infrastructure
@@ -160,12 +201,14 @@ def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', verbose 
     Kf = If + Kf * (1-delta_f)
     Y = GDP(Y, growth = growth)
 
+    Kg, Kf, Eg, Ef, beta, E, Y = check_bounds(Kg, Kf, Eg, Ef, beta, E, Y, raise_err = raise_bnd_err)
+
     # else: # going backwards
     #     Kg = (Kg - Ig)/(1-delta_g)
     #     Kf = (Kf - If)/(1-delta_f)
     #     Y = GDP(Y, growth = growth, invert_time = True)
 
-    return Y, Kg, Kf, E, Eg, Ef, success
+    return Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, success
 
 
 def define_Eg(E, Kg, Kf, a, b, f_heavy, rule = 'maxgreen', verbose = False):
@@ -202,7 +245,7 @@ def define_Eg(E, Kg, Kf, a, b, f_heavy, rule = 'maxgreen', verbose = False):
     return Eg, Ef
 
 
-def backward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', verbose = False):
+def backward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_type = 'cdf', verbose = False, raise_bnd_err = False):
     """
     A single iteration of the model.
     """
@@ -239,7 +282,7 @@ def backward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', verbose
     Kgit = Kg
     Kfit = Kf
     cond = True
-    while cond or ii > max_iter:
+    while cond and ii < max_iter:
         if verbose: print('ITeration:', ii)
         Eg, Ef = define_Eg(E, Kgit, Kfit, a, b, f_heavy, rule = rule)
 
@@ -250,8 +293,7 @@ def backward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', verbose
         if Pg < 0.: Pg = gamma_g * (1 - eta_g) * Eg # linearity for small Eg
 
         ## Investment in energy production
-        beta_2 = 1 - beta_0 # sums to 1
-        beta = (beta_0 + beta_2*sigmoid((Pg/Kg - Pf/Kf)/(Pf/Kf), delta = delta_sig)) # fraction of green investment: should be limited between 0 and 1
+        beta = beta_fun(beta_0, (Pg/Kg - Pf/Kf)/(Pg/Kg+Pf/Kf), delta_sig = delta_sig, ftype = betafun_type)
         #if verbose: print(beta, (Pg/Kg - Pf/Kf)/(Pf/Kf), Eg, Ef, Pg, Pf)
         
         Ig = beta * r_inv * (Pg + Pf)
@@ -263,6 +305,8 @@ def backward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', verbose
 
         Kgit = (Kg - Ig)/(1-delta_g)
         Kfit = (Kf - If)/(1-delta_f)
+
+        Kgit, Kfit, Eg, Ef, beta, E, Y = check_bounds(Kgit, Kfit, Eg, Ef, beta, E, Y, raise_err = raise_bnd_err)
 
         if verbose: print(Kgit, Kgit_old)
 
@@ -294,11 +338,34 @@ def backward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', verbose
     # Kg = (Kg - Ig)/(1-delta_g)
     # Kf = (Kf - If)/(1-delta_f)
 
-    return Y, Kg, Kf, E, Eg, Ef, success
+    return Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, success
 
 
+def check_bounds(Kg, Kf, Eg, Ef, beta, E, Y, raise_err = False):
+    input_vec = np.array([Kg, Kf, Eg, Ef, beta, E, Y])
+    nams = np.array('Kg, Kf, Eg, Ef, beta, E, Y'.split())
+    mins = np.array([0, 0, 0, 0, 0, 0, 0])
+    maxs = np.array([Kg, Kf, E, E, 1., E, Y])
 
-def run_model(inicond = default_inicond, params = default_params, n_iter = 100, rule = 'maxgreen', verbose = True, run_backwards = False):
+    if np.all(input_vec >= mins) and np.all(input_vec <= maxs):
+        pass
+    elif np.any(input_vec < mins):
+        if raise_err: 
+            raise ValueError('Below threshold!', nams[np.where(input_vec < mins)])
+        else:
+            print('Resetting to min val: ', nams[np.where(input_vec < mins)])
+            input_vec[np.where(input_vec < mins)] = mins[np.where(input_vec < mins)]
+    elif np.any(input_vec > maxs):
+        if raise_err:
+            raise ValueError('Above threshold!', nams[np.where(input_vec > maxs)])
+        else:
+            print('Resetting to max val: ', nams[np.where(input_vec > maxs)])
+            input_vec[np.where(input_vec > maxs)] = maxs[np.where(input_vec > maxs)]
+
+    return list(input_vec)
+
+
+def run_model(inicond = default_inicond, params = default_params, n_iter = 100, rule = 'maxgreen', betafun_type = 'cdf', verbose = True, run_backwards = False, raise_bnd_err = False):
     """
 
     Runs the model. Returns list of lists of outputs: [Y, Kg, Kf, E, Eg, Ef]  (can be improved!)
@@ -313,11 +380,11 @@ def run_model(inicond = default_inicond, params = default_params, n_iter = 100, 
     resu = []
     for i in range(n_iter):
         if not run_backwards:
-            Y, Kg, Kf, E, Eg, Ef, success = forward_step(Y, Kg, Kf, params = params, verbose = verbose, rule = rule)
+            Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, success = forward_step(Y, Kg, Kf, params = params, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err= raise_bnd_err)
         else:
-            Y, Kg, Kf, E, Eg, Ef, success = backward_step(Y, Kg, Kf, params = params, verbose = verbose, rule = rule)
+            Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, success = backward_step(Y, Kg, Kf, params = params, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err=raise_bnd_err)
 
-        resu.append([Y, Kg, Kf, E, Eg, Ef])
+        resu.append([Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf])
         if success == 0: 
             continue
         elif success == 1:
@@ -357,6 +424,10 @@ def rebuild_resu(resu, run_backwards = False):
     E = resu[:, 3]
     Eg = resu[:, 4]
     Ef = resu[:, 5]
+    Ig = resu[:, 6]
+    If = resu[:, 7]
+    Pg = resu[:, 8]
+    Pf = resu[:, 9]
     if run_backwards:
         Ys = Ys[::-1]
         Kgs = Kgs[::-1]
@@ -364,6 +435,10 @@ def rebuild_resu(resu, run_backwards = False):
         E = E[::-1]
         Eg = Eg[::-1]
         Ef = Ef[::-1]
+        Ig = Ig[::-1]
+        If = If[::-1]
+        Pg = Pg[::-1]
+        Pf = Pf[::-1]
 
     ok_resu = dict()
     ok_resu['Y'] = Ys
@@ -372,6 +447,10 @@ def rebuild_resu(resu, run_backwards = False):
     ok_resu['E'] = E
     ok_resu['Eg'] = Eg
     ok_resu['Ef'] = Ef
+    ok_resu['Ig'] = Ig
+    ok_resu['If'] = If
+    ok_resu['Pg'] = Pg
+    ok_resu['Pf'] = Pf
 
     return ok_resu
 
@@ -445,8 +524,10 @@ def plot_sens_param(vals, nominal, all_resu, plot_type = 'tuning'):
     elif plot_type == 'tuning':
         fig = plt.figure()
         resu = nominal
-        Ig = np.diff(resu['Kg'])
-        If = np.diff(resu['Kf'])
+        # Ig = np.diff(resu['Kg'])
+        # If = np.diff(resu['Kf'])
+        Ig = resu['Ig']
+        If = resu['If']
 
         plt.plot((Ig/(Ig+If))[:20], label = 'model', color = 'black')
         plt.plot(Ig_obs/(Ig_obs+If_obs), label = 'obs', color = 'orange')
@@ -454,8 +535,10 @@ def plot_sens_param(vals, nominal, all_resu, plot_type = 'tuning'):
         colors = get_colors_from_colormap(len(all_resu))
 
         for resu, col in zip(all_resu, colors):
-            Ig = np.diff(resu['Kg'])
-            If = np.diff(resu['Kf'])
+            # Ig = np.diff(resu['Kg'])
+            # If = np.diff(resu['Kf'])
+            Ig = resu['Ig']
+            If = resu['If']
             plt.plot((Ig/(Ig+If))[:20], color = col, ls = '--', lw = 1)
 
             # plt.annotate(f'({x_annotate}, {y_annotate:.2f})', xy=(x_annotate, y_annotate), xytext=(x_annotate + 1, y_annotate - 0.5), arrowprops=dict(facecolor='black', shrink=0.05))
@@ -498,8 +581,10 @@ def plot_resuvsobs(resu, year_ini = 2015, ind_ini = 0, ind_fin = 20):
     """
 
     fig = plt.figure()
-    Ig = np.diff(resu['Kg'])
-    If = np.diff(resu['Kf'])
+    # Ig = np.diff(resu['Kg'])
+    # If = np.diff(resu['Kf'])
+    Ig = resu['Ig']
+    If = resu['If']
 
     plt.plot(np.arange(year_ini, year_ini + (ind_fin-ind_ini)), (Ig/(Ig+If))[ind_ini:ind_fin], label = 'model', color = 'black')
     plt.plot(np.arange(2015, 2024), Ig_obs/(Ig_obs+If_obs), label = 'obs', color = 'orange')
@@ -525,8 +610,10 @@ def plot_hist(resu, year_ini = 1950, year_fin = 2023):
     """
 
     fig = plt.figure()
-    Ig = np.diff(resu['Kg'])
-    If = np.diff(resu['Kf'])
+    #Ig = np.diff(resu['Kg'])
+    #If = np.diff(resu['Kf'])
+    Ig = resu['Ig']
+    If = resu['If']
 
     maxlen = len(If)
 
