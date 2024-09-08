@@ -62,12 +62,52 @@ default_params['beta_0'] = 0.2 # Fraction of infrastructure investments guarante
 #default_params['beta_2'] = 0.8 # beta_0 + beta_2 sums to 1
 default_params['delta_sig'] = 0.5
 
-default_params['delta_g'] = 0.005 # Depreciation of infrastructure/capital (green)
-default_params['delta_f'] = 0.005 # Depreciation of infrastructure/capital (fossil)
+default_params['delta_g'] = 0.01 # Depreciation of infrastructure/capital (green)
+default_params['delta_f'] = 0.01 # Depreciation of infrastructure/capital (fossil)
 
 default_params['f_heavy'] = 0.1 # Fraction of total production not willing to go green (e.g. military, heavy industry) [0-1]
 
 default_inicond = {'Y_ini' : 1, 'Kg_ini' : 0.1, 'Kf_ini' : 0.9}
+
+inicond_2015 = {'Y_ini' : 1, 'Kg_ini' : Eg_ratio_ok[0]/100, 'Kf_ini' : 1-Eg_ratio_ok[0]/100 + 0.1} # from 2015
+inicond_2000 = {'Y_ini' : 1, 'Kg_ini' : Eg_ratio[-24]/100, 'Kf_ini' : 1-Eg_ratio[-24]/100 + 0.1} # Allowing more fossil capacity at start to avoid scarcity
+
+
+# Params that give best fit using data of green energy share (2000-2023) and share of green energy investment (2015-2023). Cost function of energy investment is weighted at 0.1 (I_weight). Note delta_sig is at the lowest bound.
+best_params = {'growth': 0.01877564045416566,
+ 'eps': 1,
+ 'a': 1,
+ 'b': 1,
+ 'gamma_f': 0.5,
+ 'gamma_g': 0.5751197750514625,
+ 'eta_g': 0.2,
+ 'eta_f': 0.2,
+ 'h_g': 0.5,
+ 'h_f': 0.5,
+ 'r_inv': 0.1,
+ 'beta_0': -0.1149135946421199,
+ 'delta_sig': 0.3,
+ 'delta_g': 0.01,
+ 'delta_f': 0.01,
+ 'f_heavy': 0.1}
+
+# Same but with I_weight = 1, which gives slightly worse energy share fit (and faster transition!)
+ best_params_Iw1 = {'growth': 0.017055428532726295,
+ 'eps': 1,
+ 'a': 1,
+ 'b': 1,
+ 'gamma_f': 0.5,
+ 'gamma_g': 0.6460875554154768,
+ 'eta_g': 0.2,
+ 'eta_f': 0.2,
+ 'h_g': 0.5,
+ 'h_f': 0.5,
+ 'r_inv': 0.1,
+ 'beta_0': -0.1792655638830066,
+ 'delta_sig': 0.3,
+ 'delta_g': 0.01,
+ 'delta_f': 0.01,
+ 'f_heavy': 0.1}
 
 ########################### parameters ###########################################################################
 
@@ -161,8 +201,8 @@ def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_
             Ef = Ef_max
         Eg = E - Ef
     elif rule == 'whole_capacity': # This makes Y useless
-        Eg = Kg
-        Ef = Kf
+        Eg = Eg_max
+        Ef = Ef_max
     elif rule == 'fossil_constraint': # military and heavy industry keep using fossil
         Ef_min = f_heavy * Y
         if E-Ef_min < Eg_max:
@@ -575,7 +615,62 @@ def plot_sens_param(vals, nominal, all_resu, plot_type = 'tuning'):
     return fig, fig2, fig3
 
 
-def plot_resuvsobs(resu, year_ini = 2015, ind_ini = 0, ind_fin = 20):
+
+def costfun_1524(resu, year_ini = 2015, I_weight = 1.):
+    """
+    Calcs cost function to observed data for 2015-2024.
+
+    year_ini indicates first year of model sim
+    I_weight is the weight to give to the "investment part" of the cost function relative to the energy share part
+    """
+    ind_ini = 2015 - year_ini
+    ind_fin = ind_ini + 9
+
+    Ig = resu['Ig']
+    If = resu['If']
+
+    cost_I = 1.e4*np.sum(((Ig/(Ig+If))[ind_ini:ind_fin] - (Ig_obs/(Ig_obs+If_obs)))**2)
+    cost_Eg = np.sum(((100*resu['Eg']/resu['E'])[ind_ini:ind_fin] - Eg_ratio_ok)**2)
+
+    return I_weight * cost_I + cost_Eg
+
+
+def costfun_hist(resu, year_ini = 2000, I_weight = 1.):
+    """
+    Calcs cost function to observed data, using both energy share (1965-2024) and investment share (2015-2024).
+
+    year_ini indicates first year of model sim
+    I_weight is the weight to give to the "investment part" of the cost function relative to the energy share part
+
+    """
+    ind_ini = 2015 - year_ini
+    ind_fin = ind_ini + 9
+
+    Ig = resu['Ig']
+    If = resu['If']
+
+    #print(ind_ini, ind_fin, len(Ig))
+
+    cost_I = 1.e4*np.sum(((Ig/(Ig+If))[ind_ini:ind_fin] - (Ig_obs/(Ig_obs+If_obs)))**2)
+
+    ind_ini = 1965 - year_ini
+    if ind_ini < 0: ind_ini = 0
+    ind_fin = ind_ini + len(Eg_ratio)
+    if ind_fin > len(resu['Eg']): ind_fin = len(resu['Eg'])-1
+
+    #print(ind_ini, ind_fin, len(Ig))
+
+    ind_obs_ini = year_ini - 1965
+    ind_obs_fin = ind_obs_ini + len(resu['Eg'])-1
+
+    #print(ind_obs_ini, ind_obs_fin, len(Ig))
+
+    cost_Eg = np.sum(((100*resu['Eg']/resu['E'])[ind_ini:ind_fin] - Eg_ratio[ind_obs_ini:ind_obs_fin])**2)
+
+    return I_weight * cost_I + cost_Eg
+
+
+def plot_resuvsobs(resu, year_ini = 2015, maxlen = 50):#, ind_ini = 0, ind_fin = 20):
     """
     Plots outputs vs observed green investment and green energy share.
     """
@@ -586,7 +681,10 @@ def plot_resuvsobs(resu, year_ini = 2015, ind_ini = 0, ind_fin = 20):
     Ig = resu['Ig']
     If = resu['If']
 
-    plt.plot(np.arange(year_ini, year_ini + (ind_fin-ind_ini)), (Ig/(Ig+If))[ind_ini:ind_fin], label = 'model', color = 'black')
+    totle = min(maxlen, len(Ig))
+
+    #plt.plot(np.arange(year_ini, year_ini + (ind_fin-ind_ini)), (Ig/(Ig+If))[ind_ini:ind_fin], label = 'model', color = 'black')
+    plt.plot(np.arange(year_ini, year_ini + totle), (Ig/(Ig+If))[:totle], label = 'model', color = 'black')
     plt.plot(np.arange(2015, 2024), Ig_obs/(Ig_obs+If_obs), label = 'obs', color = 'orange')
 
     plt.xlabel('time')
@@ -594,8 +692,8 @@ def plot_resuvsobs(resu, year_ini = 2015, ind_ini = 0, ind_fin = 20):
     plt.legend()
 
     fig2 = plt.figure()
-    plt.plot(np.arange(year_ini, year_ini + (ind_fin-ind_ini)), (100*resu['Eg']/resu['E'])[ind_ini:ind_fin], label = 'model', color = 'black')
-    plt.plot(np.arange(2015, 2024), Eg_ratio_ok, label = 'obs', color = 'orange')
+    plt.plot(np.arange(year_ini, year_ini + totle), (100*resu['Eg']/resu['E'])[:totle], label = 'model', color = 'black')
+    plt.plot(np.arange(year_ini, 2024), Eg_ratio[-(2024-year_ini):], label = 'obs', color = 'orange')
 
     plt.xlabel('time')
     plt.ylabel('Share of renewable energy')
@@ -604,7 +702,7 @@ def plot_resuvsobs(resu, year_ini = 2015, ind_ini = 0, ind_fin = 20):
     return fig, fig2
 
 
-def plot_hist(resu, year_ini = 1950, year_fin = 2023):
+def plot_hist(resu, year_ini = 1950, maxlen = 50):
     """
     Plots outputs vs observed green investment and green energy share.
     """
@@ -615,11 +713,9 @@ def plot_hist(resu, year_ini = 1950, year_fin = 2023):
     Ig = resu['Ig']
     If = resu['If']
 
-    maxlen = len(If)
+    totle = min(maxlen, len(Ig))
 
-    year_ini = max([year_ini, year_fin-maxlen+1])
-
-    plt.plot(np.arange(year_ini, year_fin + 1), (Ig/(Ig+If))[-(year_fin-year_ini+1):], label = 'model', color = 'black')
+    plt.plot(np.arange(year_ini, year_ini + totle), (Ig/(Ig+If))[:totle], label = 'model', color = 'black')
     plt.plot(np.arange(2015, 2024), Ig_obs/(Ig_obs+If_obs), label = 'obs', color = 'orange')
 
     plt.xlabel('time')
@@ -627,7 +723,7 @@ def plot_hist(resu, year_ini = 1950, year_fin = 2023):
     plt.legend()
 
     fig2 = plt.figure()
-    plt.plot(np.arange(year_ini, year_fin + 1), (100*resu['Eg']/resu['E'])[-(year_fin-year_ini+1):], label = 'model', color = 'black')
+    plt.plot(np.arange(year_ini, year_ini + totle), (100*resu['Eg']/resu['E'])[:totle], label = 'model', color = 'black')
     plt.plot(np.arange(1965, 2024), Eg_ratio, label = 'obs', color = 'orange')
 
     plt.xlabel('time')
@@ -637,20 +733,37 @@ def plot_hist(resu, year_ini = 1950, year_fin = 2023):
     return fig, fig2
 
 
-def plot_resu(resu):
-    fig = plt.figure()
-    plt.plot(resu['Kf'] + resu['Kg'], label = 'Total')
-    plt.plot(resu['Kf'], label = 'Fossil')
-    plt.plot(resu['Kg'], label = 'Green')
-    plt.xlabel('time')
+def plot_resu(resu, year_ini = None):
+
+    if year_ini is not None:
+        xax = np.arange(year_ini, year_ini + len(resu['E']))
+    else:
+        xax = np.arange(len(resu['E']))
+
+    fig, ax = plt.subplots()
+    plt.plot(xax, resu['Kf'] + resu['Kg'], label = 'Total')
+    plt.plot(xax, resu['Kf'], label = 'Fossil')
+    plt.plot(xax, resu['Kg'], label = 'Green')
+    if year_ini is not None:
+        plt.xlabel('year')
+    else:
+        plt.xlabel('time')
     plt.ylabel('Energy infrastructure')
     plt.legend()
 
-    fig2 = plt.figure()
-    plt.plot(resu['E'], label = 'Total')
-    plt.plot(resu['Ef'], label = 'Fossil')
-    plt.plot(resu['Eg'], label = 'Green')
-    plt.xlabel('time')
+    fig2, ax2 = plt.subplots()
+    plt.plot(xax, resu['E'], label = 'Total')
+    plt.plot(xax, resu['Ef'], label = 'Fossil')
+    plt.plot(xax, resu['Eg'], label = 'Green')
+
+    ax2.axvline(xax[resu['year_peak']], color = 'indianred', lw = 0.5, ls = ':')
+    ax2.axvline(xax[resu['year_halved']], color = 'grey', lw = 0.5, ls = ':')
+    ax2.axvline(xax[resu['year_zero']], color = 'forestgreen', lw = 0.5, ls = ':')
+
+    if year_ini is not None:
+        plt.xlabel('year')
+    else:
+        plt.xlabel('time')
     plt.ylabel('Energy production')
     plt.legend()
 
