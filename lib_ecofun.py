@@ -69,8 +69,13 @@ default_params['f_heavy'] = 0.1 # Fraction of total production not willing to go
 
 default_inicond = {'Y_ini' : 1, 'Kg_ini' : 0.1, 'Kf_ini' : 0.9}
 
-inicond_2015 = {'Y_ini' : 1, 'Kg_ini' : Eg_ratio_ok[0]/100, 'Kf_ini' : 1-Eg_ratio_ok[0]/100 + 0.1} # from 2015
-inicond_2000 = {'Y_ini' : 1, 'Kg_ini' : Eg_ratio[-24]/100, 'Kf_ini' : 1-Eg_ratio[-24]/100 + 0.1} # Allowing more fossil capacity at start to avoid scarcity
+fossil_capacity_util = 0.5 # E/E_max at start; for oil is 0.8 (data from energy institute), but unknown for coal and gas, so likely smaller than 0.8
+inicond_2015 = {'Y_ini' : 1, 'Kg_ini' : Eg_ratio_ok[0]/100, 'Kf_ini' : (1-Eg_ratio_ok[0]/100)/fossil_capacity_util} # from 2015
+inicond_2000 = {'Y_ini' : 1, 'Kg_ini' : Eg_ratio[-24]/100, 'Kf_ini' : (1-Eg_ratio[-24]/100)/fossil_capacity_util} # Allowing more fossil capacity at start to avoid scarcity
+
+def inicond_yr(year):
+    inicond = {'Y_ini' : 1, 'Kg_ini' : Eg_ratio[year-2024]/100, 'Kf_ini' : (1-Eg_ratio[year-2024]/100)/fossil_capacity_util}
+    return inicond
 
 
 # Params that give best fit using data of green energy share (2000-2023) and share of green energy investment (2015-2023). Cost function of energy investment is weighted at 0.1 (I_weight). Note delta_sig is at the lowest bound.
@@ -92,7 +97,7 @@ best_params = {'growth': 0.01877564045416566,
  'f_heavy': 0.1}
 
 # Same but with I_weight = 1, which gives slightly worse energy share fit (and faster transition!)
- best_params_Iw1 = {'growth': 0.017055428532726295,
+best_params_Iw1 = {'growth': 0.017055428532726295,
  'eps': 1,
  'a': 1,
  'b': 1,
@@ -110,6 +115,13 @@ best_params = {'growth': 0.01877564045416566,
  'f_heavy': 0.1}
 
 ########################### parameters ###########################################################################
+
+def plot_cdf_beta(beta_0, prof_ratio, delta_sig):
+    x = np.linspace(-3, 3)
+
+    plt.plot(x, cdf(x, sigma = delta_sig))
+
+    return
 
 def cdf(x, mu = 0., sigma = 1.):
     # Compute the integral using the cumulative distribution function (CDF)
@@ -616,7 +628,7 @@ def plot_sens_param(vals, nominal, all_resu, plot_type = 'tuning'):
 
 
 
-def costfun_1524(resu, year_ini = 2015, I_weight = 1.):
+def costfun_1524(resu, year_ini = 2015, I_weight = 1., all_green = False):
     """
     Calcs cost function to observed data for 2015-2024.
 
@@ -629,13 +641,17 @@ def costfun_1524(resu, year_ini = 2015, I_weight = 1.):
     Ig = resu['Ig']
     If = resu['If']
 
-    cost_I = 1.e4*np.sum(((Ig/(Ig+If))[ind_ini:ind_fin] - (Ig_obs/(Ig_obs+If_obs)))**2)
+    if all_green:
+        cost_I = 1.e4*np.sum(((Ig/(Ig+If))[ind_ini:ind_fin] - (Ig_obs_all/(Ig_obs_all+If_obs)))**2)
+    else:
+        cost_I = 1.e4*np.sum(((Ig/(Ig+If))[ind_ini:ind_fin] - (Ig_obs/(Ig_obs+If_obs)))**2)
+
     cost_Eg = np.sum(((100*resu['Eg']/resu['E'])[ind_ini:ind_fin] - Eg_ratio_ok)**2)
 
     return I_weight * cost_I + cost_Eg
 
 
-def costfun_hist(resu, year_ini = 2000, I_weight = 1.):
+def costfun_hist(resu, year_ini = 2000, I_weight = 1., all_green = False):
     """
     Calcs cost function to observed data, using both energy share (1965-2024) and investment share (2015-2024).
 
@@ -651,7 +667,10 @@ def costfun_hist(resu, year_ini = 2000, I_weight = 1.):
 
     #print(ind_ini, ind_fin, len(Ig))
 
-    cost_I = 1.e4*np.sum(((Ig/(Ig+If))[ind_ini:ind_fin] - (Ig_obs/(Ig_obs+If_obs)))**2)
+    if all_green:
+        cost_I = 1.e4*np.sum(((Ig/(Ig+If))[ind_ini:ind_fin] - (Ig_obs_all/(Ig_obs_all+If_obs)))**2)
+    else:
+        cost_I = 1.e4*np.sum(((Ig/(Ig+If))[ind_ini:ind_fin] - (Ig_obs/(Ig_obs+If_obs)))**2)
 
     ind_ini = 1965 - year_ini
     if ind_ini < 0: ind_ini = 0
@@ -670,7 +689,7 @@ def costfun_hist(resu, year_ini = 2000, I_weight = 1.):
     return I_weight * cost_I + cost_Eg
 
 
-def plot_resuvsobs(resu, year_ini = 2015, maxlen = 50):#, ind_ini = 0, ind_fin = 20):
+def plot_resuvsobs(resu, year_ini = 2015, maxlen = 50, all_green = False):#, ind_ini = 0, ind_fin = 20):
     """
     Plots outputs vs observed green investment and green energy share.
     """
@@ -685,7 +704,12 @@ def plot_resuvsobs(resu, year_ini = 2015, maxlen = 50):#, ind_ini = 0, ind_fin =
 
     #plt.plot(np.arange(year_ini, year_ini + (ind_fin-ind_ini)), (Ig/(Ig+If))[ind_ini:ind_fin], label = 'model', color = 'black')
     plt.plot(np.arange(year_ini, year_ini + totle), (Ig/(Ig+If))[:totle], label = 'model', color = 'black')
-    plt.plot(np.arange(2015, 2024), Ig_obs/(Ig_obs+If_obs), label = 'obs', color = 'orange')
+    if all_green:
+        print('Plotting original data of green investment from world bank')
+        plt.plot(np.arange(2015, 2024), Ig_obs_all/(Ig_obs_all+If_obs), label = 'obs', color = 'orange')
+    else:
+        print('Plotting only data regarding investment on green power production (only part of what world bank considers green investment)')
+        plt.plot(np.arange(2015, 2024), Ig_obs/(Ig_obs+If_obs), label = 'obs', color = 'orange')
 
     plt.xlabel('time')
     plt.ylabel('Green share of energy investment (beta)')
@@ -756,9 +780,12 @@ def plot_resu(resu, year_ini = None):
     plt.plot(xax, resu['Ef'], label = 'Fossil')
     plt.plot(xax, resu['Eg'], label = 'Green')
 
-    ax2.axvline(xax[resu['year_peak']], color = 'indianred', lw = 0.5, ls = ':')
-    ax2.axvline(xax[resu['year_halved']], color = 'grey', lw = 0.5, ls = ':')
-    ax2.axvline(xax[resu['year_zero']], color = 'forestgreen', lw = 0.5, ls = ':')
+    if not np.isnan(resu['year_peak']):
+        ax2.axvline(xax[resu['year_peak']], color = 'indianred', lw = 0.5, ls = ':')
+    if not np.isnan(resu['year_halved']):
+        ax2.axvline(xax[resu['year_halved']], color = 'grey', lw = 0.5, ls = ':')
+    if not np.isnan(resu['year_zero']):
+        ax2.axvline(xax[resu['year_zero']], color = 'forestgreen', lw = 0.5, ls = ':')
 
     if year_ini is not None:
         plt.xlabel('year')
