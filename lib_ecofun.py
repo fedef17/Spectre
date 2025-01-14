@@ -4,6 +4,7 @@ import numpy as np
 from matplotlib import pyplot as plt
 import matplotlib.cm as cm
 import scipy
+import xarray as xr
 
 ################################################################################################################
 ######################################## Useful data
@@ -17,13 +18,29 @@ If_obs = np.array(lista[1::2]).astype(float)
 # Data on green investment for energy production only (only "Renewable power" in clean energy spending)
 Ig_obs = np.array('331 340 351 377 451 494 517 596 659'.split()).astype(float)
 
+Ig_obs = xr.DataArray(Ig_obs, dims = ["year"], coords = {"year": np.arange(2015, 2024)})
+Ig_obs_all = xr.DataArray(Ig_obs_all, dims = ["year"], coords = {"year": np.arange(2015, 2024)})
+If_obs = xr.DataArray(If_obs, dims = ["year"], coords = {"year": np.arange(2015, 2024)})
+
 #######################
 
 ########## E_g/E, from 1965 to 2023 (source ourworldindata: https://ourworldindata.org/renewable-energy)
 cose = '6.445519 6.516204 6.423987 6.3901453 6.32996 6.2402315 6.2751184 6.231038 5.98148 6.527657 6.5613737 6.2220235 6.216026 6.4746337 6.5883255 6.8036585 6.9859357 7.1871624 7.3960943 7.3479614 7.309479 7.2850266 7.1429477 7.10847 6.9876184 7.182692 7.301195 7.2864876 7.6539183 7.6321683 7.8718243 7.755703 7.847491 7.890869 7.8530593 7.8158455 7.552836 7.5668545 7.3342075 7.518 7.5638204 7.705343 7.7473364 8.245706 8.564856 8.797048 8.980997 9.414955 9.847355 10.218171 10.504495 10.980251 11.337292 11.743186 12.228147 13.404395 13.469198 14.119935 14.562141'.split()
 
-Eg_ratio = np.array(cose).astype(float)
-Eg_ratio_ok = Eg_ratio[-9:]
+Eg_ratio = np.array(cose).astype(float)#/100.
+# Eg_ratio.sel(year = slice(2015, 2024)).values = Eg_ratio[-9:]
+
+Eg_ratio = xr.DataArray(Eg_ratio, dims = ["year"], coords = {"year": np.arange(1965, 2024)})
+
+##### Data from: https://www.statista.com/statistics/1325507/oil-and-gas-industry-profits-worldwide/
+
+fossil_profits = np.array([0.11, 0.14, 0.22, 0.91, 0.8 , 0.9 , 0.93, 0.88, 1.66, 1.84, 1.27, 
+       0.72, 0.86, 0.85, 0.78, 0.37, 0.55, 0.5 , 0.69, 0.91, 0.47, 0.51, 
+       0.52, 0.46, 0.49, 0.64, 0.55, 0.29, 0.46, 0.91, 0.73, 0.68, 0.84, 
+       1.17, 1.63, 1.85, 1.92, 2.62, 1.41, 1.84, 2.69, 2.62, 2.43, 2.13, 
+       1. , 0.79, 1.11, 1.61, 1.35, 0.87])
+
+Pf_obs = xr.DataArray(fossil_profits, dims = ["year"], coords = {"year": np.arange(1971, 2021)})
 
 #################################################################################################################
 #################################################################################################################
@@ -40,6 +57,28 @@ def GDP(Y, growth = 0.01, invert_time = False):
     else:
         return Y/(1+growth)
 
+def get_wb_gdp_data(datadir):
+    import csv
+
+    with open(datadir + 'API_NY.GDP.MKTP.CD_DS2_en_csv_v2_6298258.csv', newline='') as csvfile:
+        reader = csv.reader(csvfile)
+
+        rows = []
+        for row in reader:
+            rows.append(row)
+
+    rows = rows[5:]
+
+    country = [ro[0] for ro in rows]
+    ro_ok = np.where(np.array(country) == 'World')[0][0]
+    row_wld = rows[ro_ok]
+
+    gdp = np.array(row_wld[4:-1], dtype = float)
+    years = np.arange(1960, 2023)
+
+    gdp = xr.DataArray(gdp, dims = ["year"], coords = {"year": np.arange(1960, 2023)})
+
+    return gdp
 
 ########################### parameters ###########################################################################
 
@@ -49,6 +88,7 @@ default_params['eps'] = 1 # energy efficiency
 
 default_params['a'] = 1 # Energy production per unit of infrastructure/capital (green)
 default_params['b'] = 1 # Energy production per unit of infrastructure/capital (fossil)
+# default_params['a_linear'] = None # (h, m) a = mx + h
 
 default_params['gamma_f'] = 0.5 # Energy price (fossil)
 default_params['gamma_g'] = 0.5 # Energy price (green)
@@ -70,11 +110,11 @@ default_params['f_heavy'] = 0.1 # Fraction of total production not willing to go
 default_inicond = {'Y_ini' : 1, 'Kg_ini' : 0.1, 'Kf_ini' : 0.9}
 
 fossil_capacity_util = 0.5 # E/E_max at start; for oil is 0.8 (data from energy institute), but unknown for coal and gas, so likely smaller than 0.8
-inicond_2015 = {'Y_ini' : 1, 'Kg_ini' : Eg_ratio_ok[0]/100, 'Kf_ini' : (1-Eg_ratio_ok[0]/100)/fossil_capacity_util} # from 2015
-inicond_2000 = {'Y_ini' : 1, 'Kg_ini' : Eg_ratio[-24]/100, 'Kf_ini' : (1-Eg_ratio[-24]/100)/fossil_capacity_util} # Allowing more fossil capacity at start to avoid scarcity
+inicond_2015 = {'Y_ini' : 1, 'Kg_ini' : Eg_ratio.sel(year = 2015).values/100, 'Kf_ini' : (1-Eg_ratio.sel(year = 2015).values/100)/fossil_capacity_util} # from 2015
+inicond_2000 = {'Y_ini' : 1, 'Kg_ini' : Eg_ratio.sel(year = 2000).values/100, 'Kf_ini' : (1-Eg_ratio.sel(year = 2000).values/100)/fossil_capacity_util} # Allowing more fossil capacity at start to avoid scarcity
 
 def inicond_yr(year):
-    inicond = {'Y_ini' : 1, 'Kg_ini' : Eg_ratio[year-2024]/100, 'Kf_ini' : (1-Eg_ratio[year-2024]/100)/fossil_capacity_util}
+    inicond = {'Y_ini' : 1, 'Kg_ini' : Eg_ratio.sel(year = year).values/100, 'Kf_ini' : (1-Eg_ratio.sel(year = year).values/100)/fossil_capacity_util}
     return inicond
 
 
@@ -183,6 +223,7 @@ def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_
     delta_f = params['delta_f']
     f_heavy = params['f_heavy']
     #########
+    if verbose: print('params: ', params)
 
     # Energy and infrastructure
     Eg_max = a * Kg # a = 1
@@ -243,7 +284,7 @@ def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_
     
     Ig = beta * r_inv * (Pg + Pf)
     If = (1-beta) * r_inv * (Pg + Pf)
-    if verbose: print((8*'{:10.2f}').format(beta, (Pg/Kg - Pf/Kf)/(Pf/Kf), Eg, Ef, Pg, Pf, Ig, If))
+    if verbose: print(('check: ' + 8*'{:10.2f}').format(beta, pr, Eg, Ef, Pg, Pf, Ig, If))
 
     ## for next step
     ## Capital/infrastructure
@@ -417,24 +458,75 @@ def check_bounds(Kg, Kf, Eg, Ef, beta, E, Y, raise_err = False):
     return list(input_vec)
 
 
-def run_model(inicond = default_inicond, params = default_params, n_iter = 100, rule = 'maxgreen', betafun_type = 'cdf', verbose = True, run_backwards = False, raise_bnd_err = False):
+def set_params(params, years, verbose = False):
+    okpar = default_params.copy()
+    scenario_pars = []
+
+    for par in okpar:
+        if type(params[par]) == float:
+            if params[par] != default_params[par]:
+                if verbose: print(f'Changing default for param {par}')
+                okpar[par] = params[par]
+        else:
+            okpar[par] = params[par]
+
+        if isinstance(params[par], xr.core.dataarray.DataArray) or isinstance(params[par], np.ndarray):
+            scenario_pars.append(par)
+
+        # if f'{par}_linear' in params:
+        #     if verbose: print(f'Setting value of {par} with linear slope!')
+        #     intercept, slope = params[f'{par}_linear']
+        #     okpar[par] = intercept + slope*(years - years[0]) # scenario
+    
+    if len(scenario_pars) > 0:
+        allow_param_scenario = scenario_pars
+    else:
+        allow_param_scenario = None
+    
+    return okpar, allow_param_scenario
+
+
+def run_model(inicond = default_inicond, params = default_params, n_iter = 100, rule = 'maxgreen', betafun_type = 'cdf', verbose = True, run_backwards = False, raise_bnd_err = False, year_ini = None, extend_constant = False):
     """
 
     Runs the model. Returns list of lists of outputs: [Y, Kg, Kf, E, Eg, Ef]  (can be improved!)
 
     Rules are for energy partition when potential production exceeds demand (see forward_step function).
 
+    allow_param_scenario removed. if parameters are arrays or dataarrays, this flag is automatically activated.
+
     """
+    if year_ini is None:
+        raise ValueError(f'{year_ini} not set!')
 
     Y = inicond['Y_ini']
     Kg = inicond['Kg_ini']
     Kf = inicond['Kf_ini']
+
+    years = np.arange(year_ini, year_ini + n_iter)
+    params_ok, allow_param_scenario = set_params(params, years)
+    okpar = params.copy()
+
     resu = []
     for i in range(n_iter):
+        if allow_param_scenario is not None:
+            for par in allow_param_scenario:
+                if verbose: 
+                    print(f'using scenario for param {par}:')
+                    print(okpar[par])
+                if isinstance(params_ok[par], xr.core.dataarray.DataArray):
+                    ymax = params_ok[par].year.max().values
+                    yok = min(year_ini + i, ymax)
+                    print(yok, ymax)
+                    okpar[par] = params_ok[par].sel(year = yok).values
+                else:
+                    print('checkpar', i)
+                    okpar[par] = params_ok[par][i]
+
         if not run_backwards:
-            Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, success = forward_step(Y, Kg, Kf, params = params, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err= raise_bnd_err)
+            Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, success = forward_step(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err= raise_bnd_err)
         else:
-            Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, success = backward_step(Y, Kg, Kf, params = params, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err=raise_bnd_err)
+            Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, success = backward_step(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err=raise_bnd_err)
 
         resu.append([Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf])
         if success == 0: 
@@ -446,6 +538,14 @@ def run_model(inicond = default_inicond, params = default_params, n_iter = 100, 
             if verbose: print(f'Energy scarcity at time: {i}!')
             break
     
+    if extend_constant:
+        if len(resu) < n_iter:
+            print(f'Too short! extending up to {year_ini + n_iter}')
+            resu = np.stack(resu)
+            last_row = resu[-1, :]        
+            repeated = np.repeat(last_row[np.newaxis, :], n_iter - resu.shape[0], axis = 0)
+            resu = np.concatenate([resu, repeated], axis = 0)
+
     resu = rebuild_resu(resu, run_backwards = run_backwards)
     
     if not run_backwards:
@@ -464,12 +564,16 @@ def run_model(inicond = default_inicond, params = default_params, n_iter = 100, 
             resu['year_zero'] = np.nan
             resu['year_peak'] = np.nan
             resu['year_halved'] = np.nan
+    
+    if year_ini is not None:
+        resu = build_resu_ds(resu, year_ini = year_ini)
 
     return resu
 
 
 def rebuild_resu(resu, run_backwards = False):
-    resu = np.stack(resu)
+    if isinstance(resu, list):
+        resu = np.stack(resu)
     Ys = resu[:, 0]
     Kgs = resu[:, 1]
     Kfs = resu[:, 2]
@@ -503,8 +607,79 @@ def rebuild_resu(resu, run_backwards = False):
     ok_resu['If'] = If
     ok_resu['Pg'] = Pg
     ok_resu['Pf'] = Pf
+    ok_resu['Ig_ratio'] = Ig/(Ig+If)
+    ok_resu['Eg_ratio'] = Eg/E
 
     return ok_resu
+
+
+def build_resu_ds(resu, year_ini):
+    data_vars = {vnam : (['year'], resu[vnam]) for vnam in resu.keys() if isinstance(resu[vnam], np.ndarray)}
+    scalars = {vnam : resu[vnam] for vnam in resu.keys() if vnam not in data_vars}
+    for ke in scalars:
+        if 'year' in ke: scalars[ke] += year_ini
+    years = np.arange(year_ini, year_ini + len(resu['Y']))
+
+    ds = xr.Dataset(data_vars = data_vars, coords={'year': years}, attrs = scalars)
+
+    return ds
+
+
+def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'], params = default_params.copy(), year_ini = 2015, inicond = inicond_2015, verbose = False, all_green = False, I_weight = 1., obs = None):
+    """
+    Fit model to (year_ini - 2025) obs.
+    """
+    n_iter = 2025 - year_ini
+    years = np.arange(year_ini, 2025)
+
+    pardict = {par: val for par, val in zip(parnames, parset)}
+    print('---------------------')
+    print(pardict)
+
+    for par in pardict:
+        if 'intercept' in par:
+            short_nam = par[:par.rfind('_')]
+            if f'{short_nam}_slope' in parnames:
+                params[short_nam] = pardict[f'{short_nam}_intercept'] + pardict[f'{short_nam}_slope']*(years - year_ini) # scenario
+            else:
+                raise ValueError(f'{short_nam}_slope not in parnames!')
+        elif 'slope' in par:
+            short_nam = par[:par.rfind('_')]
+            if f'{short_nam}_intercept' not in parnames:
+                raise ValueError(f'{short_nam}_intercept not in parnames!')
+        else:
+            params[par] = pardict[par]        
+
+    # for parval, pnam in zip(ok_parset, ok_names):
+    #         params[pnam] = parval
+    
+    params['gamma_f'] = params['gamma_g']
+    #print('----')
+    #print(params)
+    #print('---------------------')
+    resu = run_model(inicond = inicond, params = params, n_iter = n_iter, year_ini = year_ini, verbose = verbose, rule = 'maxgreen', extend_constant = True)
+    #print(len(resu['Eg']))
+
+    # What to fit on
+    if obs is None:
+        obs = dict()
+        if all_green:
+            obs['Ig_ratio'] = Ig_obs_all/(Ig_obs_all+If_obs)
+        else:
+            obs['Ig_ratio'] = Ig_obs/(Ig_obs+If_obs)
+        obs['Eg_ratio'] = Eg_ratio/100.
+    
+    if I_weight < 1.:
+        weights = {'Ig_ratio': I_weight, 'Eg_ratio': 1.-I_weight}
+    else:
+        weights = None
+
+    cost = costfun(resu, obs, weights = weights)
+
+    #cost = costfun_1524(resu, year_ini = year_ini, I_weight = I_weight, all_green = all_green)
+    if verbose: print(cost)
+
+    return cost
 
 
 def calc_sens_param(param_name, frac_pert = 0.5, var_range = None, inicond = default_inicond, params = default_params, n_iter = 100, n_pert = 5):
@@ -602,7 +777,7 @@ def plot_sens_param(vals, nominal, all_resu, plot_type = 'tuning'):
         fig2 = plt.figure()
         resu = nominal
         plt.plot((100*resu['Eg']/resu['E'])[:20], label = 'model', color = 'black')
-        plt.plot(Eg_ratio_ok, label = 'obs', color = 'orange')
+        plt.plot(Eg_ratio.sel(year = slice(2015, 2024)).values, label = 'obs', color = 'orange')
         
         for resu, col in zip(all_resu, colors):
             plt.plot((100*resu['Eg']/resu['E'])[:20], color = col, ls = '--', lw = 1)
@@ -627,6 +802,34 @@ def plot_sens_param(vals, nominal, all_resu, plot_type = 'tuning'):
     return fig, fig2, fig3
 
 
+def costfun(resu, obs, weights = None):
+    """
+    Generic cost function for whatever is inside obs. Resu is a dataset and obs is a dict of dataarrays with 'year' axis.
+
+    If given, weights should be a dictionary with weights for all variables in obs.
+    """
+
+    cost = []
+
+    print('Resu:')
+    print(resu)
+
+    print('Obs:')
+    print(obs)
+
+    for var in obs:
+        wvar = 1
+        if weights is not None:
+            if var in weights:
+                wvar = weights[var]
+            else:
+                wvar = 1.
+        
+        cc = wvar*((resu[var]-obs[var])**2).sum().values
+        cost.append(cc)
+
+    return np.sum(cost)
+
 
 def costfun_1524(resu, year_ini = 2015, I_weight = 1., all_green = False):
     """
@@ -635,18 +838,24 @@ def costfun_1524(resu, year_ini = 2015, I_weight = 1., all_green = False):
     year_ini indicates first year of model sim
     I_weight is the weight to give to the "investment part" of the cost function relative to the energy share part
     """
-    ind_ini = 2015 - year_ini
-    ind_fin = ind_ini + 9
-
     Ig = resu['Ig']
     If = resu['If']
 
-    if all_green:
-        cost_I = 1.e4*np.sum(((Ig/(Ig+If))[ind_ini:ind_fin] - (Ig_obs_all/(Ig_obs_all+If_obs)))**2)
+    if isinstance(resu, xr.core.dataset.Dataset):
+        sim_pr = (Ig/(Ig+If)).sel(year = slice(2015, 2024)).values
+        sim_eg = 100*(resu['Eg']/resu['E']).sel(year = slice(2015, 2024)).values
     else:
-        cost_I = 1.e4*np.sum(((Ig/(Ig+If))[ind_ini:ind_fin] - (Ig_obs/(Ig_obs+If_obs)))**2)
+        ind_ini = 2015 - year_ini
+        ind_fin = ind_ini + 9
+        sim_pr = (Ig/(Ig+If))[ind_ini:ind_fin]
+        sim_eg = 100*(resu['Eg']/resu['E'])[ind_ini:ind_fin]
 
-    cost_Eg = np.sum(((100*resu['Eg']/resu['E'])[ind_ini:ind_fin] - Eg_ratio_ok)**2)
+    if all_green:
+        cost_I = 1.e4*np.sum((sim_pr - (Ig_obs_all/(Ig_obs_all+If_obs)))**2)
+    else:
+        cost_I = 1.e4*np.sum((sim_pr - (Ig_obs/(Ig_obs+If_obs)))**2)
+
+    cost_Eg = np.sum((sim_eg - Eg_ratio.sel(year = slice(2015, 2024)).values)**2)
 
     return I_weight * cost_I + cost_Eg
 
@@ -689,35 +898,72 @@ def costfun_hist(resu, year_ini = 2000, I_weight = 1., all_green = False):
     return I_weight * cost_I + cost_Eg
 
 
+def plot_resuvsobs_ds(resu, obs, year_ok = slice(2000, 2030), var_names = None):
+    """
+    Generic plot function for whatever is inside obs. Resu is a dataset and obs is a dict of dataarrays with 'year' axis.
+    """
+
+    figs = []
+    for var in obs:
+        fig = plt.figure()
+        obspl = obs[var].sel(year = year_ok).plot(label = 'obs', color = 'orange')
+        resupl = resu[var].sel(year = year_ok).plot(label = 'model', color = 'black')
+
+        plt.xlabel('year')
+        if var_names is not None:
+            plt.ylabel(var_names[var])
+        else:
+            plt.ylabel(var)
+
+        plt.legend()
+        figs.append(fig)
+
+    return figs
+
+
 def plot_resuvsobs(resu, year_ini = 2015, maxlen = 50, all_green = False):#, ind_ini = 0, ind_fin = 20):
     """
     Plots outputs vs observed green investment and green energy share.
     """
 
+    if not isinstance(resu, xr.core.dataset.Dataset):
+        resu = build_resu_ds(resu, year_ini)
+
     fig = plt.figure()
     # Ig = np.diff(resu['Kg'])
     # If = np.diff(resu['Kf'])
+
+    #totle = min(maxlen, len(Ig))
+    resu = resu.isel(year = slice(0, maxlen))
+
     Ig = resu['Ig']
     If = resu['If']
 
-    totle = min(maxlen, len(Ig))
+    resu['beta'] = resu.Ig/(resu.If + resu.Ig)
 
-    #plt.plot(np.arange(year_ini, year_ini + (ind_fin-ind_ini)), (Ig/(Ig+If))[ind_ini:ind_fin], label = 'model', color = 'black')
-    plt.plot(np.arange(year_ini, year_ini + totle), (Ig/(Ig+If))[:totle], label = 'model', color = 'black')
+    resu.beta.plot(label = 'model', color = 'black')
+    # plt.plot(np.arange(year_ini, year_ini + totle), (Ig/(Ig+If))[:totle], label = 'model', color = 'black')
     if all_green:
         print('Plotting original data of green investment from world bank')
-        plt.plot(np.arange(2015, 2024), Ig_obs_all/(Ig_obs_all+If_obs), label = 'obs', color = 'orange')
+        Ig_ratio_obs = Ig_obs_all/(Ig_obs_all+If_obs)
+        Ig_ratio_obs.plot(label = 'obs', color = 'orange')
+        #plt.plot(np.arange(2015, 2024), Ig_obs_all/(Ig_obs_all+If_obs), label = 'obs', color = 'orange')
     else:
         print('Plotting only data regarding investment on green power production (only part of what world bank considers green investment)')
-        plt.plot(np.arange(2015, 2024), Ig_obs/(Ig_obs+If_obs), label = 'obs', color = 'orange')
+        Ig_ratio_obs = Ig_obs/(Ig_obs+If_obs)
+        Ig_ratio_obs.plot(label = 'obs', color = 'orange')
+        #plt.plot(np.arange(2015, 2024), Ig_obs/(Ig_obs+If_obs), label = 'obs', color = 'orange')
 
     plt.xlabel('time')
     plt.ylabel('Green share of energy investment (beta)')
     plt.legend()
 
     fig2 = plt.figure()
-    plt.plot(np.arange(year_ini, year_ini + totle), (100*resu['Eg']/resu['E'])[:totle], label = 'model', color = 'black')
-    plt.plot(np.arange(year_ini, 2024), Eg_ratio[-(2024-year_ini):], label = 'obs', color = 'orange')
+    resu['Eg_ratio'] = 100.*resu['Eg']/resu['E']
+    resu['Eg_ratio'].plot(label = 'model', color = 'black')
+    Eg_ratio.plot(label = 'obs', color = 'orange')
+    # plt.plot(np.arange(year_ini, year_ini + totle), (100*resu['Eg']/resu['E'])[:totle], label = 'model', color = 'black')
+    # plt.plot(np.arange(year_ini, 2024), Eg_ratio[-(2024-year_ini):], label = 'obs', color = 'orange')
 
     plt.xlabel('time')
     plt.ylabel('Share of renewable energy')
@@ -758,11 +1004,14 @@ def plot_hist(resu, year_ini = 1950, maxlen = 50):
 
 
 def plot_resu(resu, year_ini = None):
-
-    if year_ini is not None:
-        xax = np.arange(year_ini, year_ini + len(resu['E']))
+    if not isinstance(resu, xr.core.dataset.Dataset):
+        if year_ini is not None:
+            resu = build_resu_ds(resu, year_ini)
+            xax = resu.year
+        else:
+            xax = np.arange(len(resu['E']))
     else:
-        xax = np.arange(len(resu['E']))
+        xax = resu.year
 
     fig, ax = plt.subplots()
     plt.plot(xax, resu['Kf'] + resu['Kg'], label = 'Total')
@@ -780,12 +1029,12 @@ def plot_resu(resu, year_ini = None):
     plt.plot(xax, resu['Ef'], label = 'Fossil')
     plt.plot(xax, resu['Eg'], label = 'Green')
 
-    if not np.isnan(resu['year_peak']):
-        ax2.axvline(xax[resu['year_peak']], color = 'indianred', lw = 0.5, ls = ':')
-    if not np.isnan(resu['year_halved']):
-        ax2.axvline(xax[resu['year_halved']], color = 'grey', lw = 0.5, ls = ':')
-    if not np.isnan(resu['year_zero']):
-        ax2.axvline(xax[resu['year_zero']], color = 'forestgreen', lw = 0.5, ls = ':')
+    if not np.isnan(resu.year_peak):
+        ax2.axvline(resu.year_peak, color = 'indianred', lw = 0.5, ls = ':')
+    if not np.isnan(resu.year_halved):
+        ax2.axvline(resu.year_halved, color = 'grey', lw = 0.5, ls = ':')
+    if not np.isnan(resu.year_zero):
+        ax2.axvline(resu.year_zero, color = 'forestgreen', lw = 0.5, ls = ':')
 
     if year_ini is not None:
         plt.xlabel('year')
