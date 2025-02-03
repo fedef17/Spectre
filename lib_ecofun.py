@@ -57,6 +57,12 @@ def GDP(Y, growth = 0.01, invert_time = False):
     else:
         return Y/(1+growth)
 
+def to_emissions(Ef):
+    """
+    Convert fossil energy to CO2 emissions
+    """
+    return 38.*Ef/Ef.sel(year = 2023)
+
 def get_wb_gdp_data(datadir):
     import csv
 
@@ -1004,7 +1010,7 @@ def plot_hist(resu, year_ini = 1950, maxlen = 50):
     return fig, fig2
 
 
-def plot_resu(resu, year_ini = None):
+def plot_resu(resu, year_ini = None, title = None):
     if not isinstance(resu, xr.core.dataset.Dataset):
         if year_ini is not None:
             resu = build_resu_ds(resu, year_ini)
@@ -1024,6 +1030,8 @@ def plot_resu(resu, year_ini = None):
         plt.xlabel('time')
     plt.ylabel('Energy infrastructure')
     plt.legend()
+    if title is not None:
+        plt.title(title)
 
     fig2, ax2 = plt.subplots()
     plt.plot(xax, resu['E'], label = 'Total')
@@ -1043,5 +1051,8 @@ def plot_resu(resu, year_ini = None):
         plt.xlabel('time')
     plt.ylabel('Energy production')
     plt.legend()
+    
+    if title is not None:
+        plt.title(title)
 
     return fig, fig2
