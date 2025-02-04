@@ -51,11 +51,17 @@ def sigmoid(x, delta = 1):
     return 1/(1+np.exp(-x/delta))
 
 
-def GDP(Y, growth = 0.01, invert_time = False):
-    if not invert_time:
-        return Y * (1+growth)
+def GDP(Y, growth = 0.01, invert_time = False, linear_gdp = None):
+    # print('AAAAAAAAAA', Y, linear_gdp)
+    if linear_gdp is None:
+        if not invert_time:
+            Y *= (1+growth)
+        else:
+            Y /= (1+growth)
     else:
-        return Y/(1+growth)
+        Y += linear_gdp
+
+    return Y
 
 def to_emissions(Ef):
     """
@@ -63,7 +69,7 @@ def to_emissions(Ef):
     """
     return 38.*Ef/Ef.sel(year = 2023)
 
-def get_wb_gdp_data(datadir):
+def get_wb_gdp_data(datadir = '/home/fedef/Research/abstractsepapers/papers/DREAM/data/'):
     import csv
 
     with open(datadir + 'API_NY.GDP.MKTP.CD_DS2_en_csv_v2_6298258.csv', newline='') as csvfile:
@@ -205,7 +211,7 @@ def prof_ratio(Pg, Pf, Kg, Kf):
     return (Pg/Kg - Pf/Kf)/(Pg/Kg+Pf/Kf)
     #return (Pg/Kg - Pf/Kf)/((Pg+Pf)/(Kg+Kf))
 
-def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_type = 'cdf', verbose = False, raise_bnd_err = False):
+def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_type = 'cdf', verbose = False, raise_bnd_err = False, linear_gdp = None):
     """
     A single iteration of the model.
     """
@@ -298,7 +304,7 @@ def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_
     if verbose and If < Kf*delta_f: print(f'Fossil infrastructure decreasing! {If} < {Kf*delta_f}')
     Kg = Ig + Kg * (1-delta_g)
     Kf = If + Kf * (1-delta_f)
-    Y = GDP(Y, growth = growth)
+    Y = GDP(Y, growth = growth, linear_gdp = linear_gdp)
 
     Kg, Kf, Eg, Ef, beta, E, Y = check_bounds(Kg, Kf, Eg, Ef, beta, E, Y, raise_err = raise_bnd_err)
 
@@ -492,7 +498,7 @@ def set_params(params, years, verbose = False):
     return okpar, allow_param_scenario
 
 
-def run_model(inicond = default_inicond, params = default_params, n_iter = 100, rule = 'maxgreen', betafun_type = 'cdf', verbose = True, run_backwards = False, raise_bnd_err = False, year_ini = None, extend_constant = False):
+def run_model(inicond = default_inicond, params = default_params, n_iter = 100, rule = 'maxgreen', betafun_type = 'cdf', verbose = True, run_backwards = False, raise_bnd_err = False, year_ini = None, extend_constant = False, linear_gdp = None):
     """
 
     Runs the model. Returns list of lists of outputs: [Y, Kg, Kf, E, Eg, Ef]  (can be improved!)
@@ -530,7 +536,7 @@ def run_model(inicond = default_inicond, params = default_params, n_iter = 100, 
                     okpar[par] = params_ok[par][i]
 
         if not run_backwards:
-            Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, success = forward_step(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err= raise_bnd_err)
+            Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, success = forward_step(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err= raise_bnd_err, linear_gdp = linear_gdp)
         else:
             Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, success = backward_step(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err=raise_bnd_err)
 
@@ -631,10 +637,14 @@ def build_resu_ds(resu, year_ini):
     return ds
 
 
-def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'], params = default_params.copy(), year_ini = 2015, inicond = inicond_2015, verbose = False, all_green = False, I_weight = 1., obs = None):
+def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'], params = default_params.copy(), year_ini = 2015, inicond = inicond_2015, verbose = False, all_green = False, I_weight = 1., obs = None, linear_gdp = None):
     """
     Fit model to (year_ini - 2025) obs.
     """
+
+    if verbose:
+        print(all_green, I_weight, obs, linear_gdp)
+        
     n_iter = 2025 - year_ini
     years = np.arange(year_ini, 2025)
 
@@ -663,7 +673,7 @@ def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'
     #print('----')
     #print(params)
     #print('---------------------')
-    resu = run_model(inicond = inicond, params = params, n_iter = n_iter, year_ini = year_ini, verbose = verbose, rule = 'maxgreen', extend_constant = True)
+    resu = run_model(inicond = inicond, params = params, n_iter = n_iter, year_ini = year_ini, verbose = verbose, rule = 'maxgreen', extend_constant = True, linear_gdp = linear_gdp)
     #print(len(resu['Eg']))
 
     # What to fit on
