@@ -5,9 +5,12 @@ from matplotlib import pyplot as plt
 import matplotlib.cm as cm
 import scipy
 import xarray as xr
+import os
 
 ################################################################################################################
 ######################################## Useful data
+
+datadir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../data/")
 
 ########## data on investment from IEA (2015 to 2023). https://www.iea.org/reports/world-energy-investment-2023/overview-and-key-findings
 
@@ -69,7 +72,7 @@ def to_emissions(Ef):
     """
     return 38.*Ef/Ef.sel(year = 2023)
 
-def get_wb_gdp_data(datadir = '/home/fedef/Research/abstractsepapers/papers/DREAM/data/'):
+def get_wb_gdp_data(datadir = datadir):
     import csv
 
     with open(datadir + 'API_NY.GDP.MKTP.CD_DS2_en_csv_v2_6298258.csv', newline='') as csvfile:
