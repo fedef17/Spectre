@@ -696,7 +696,7 @@ def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'
     cost = costfun(resu, obs, weights = weights)
 
     #cost = costfun_1524(resu, year_ini = year_ini, I_weight = I_weight, all_green = all_green)
-    if verbose: print(cost)
+    if verbose: print(f'Cost: {cost}')
 
     return cost
 
