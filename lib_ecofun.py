@@ -48,6 +48,15 @@ Pf_obs = xr.DataArray(fossil_profits, dims = ["year"], coords = {"year": np.aran
 #################################################################################################################
 #################################################################################################################
 
+def load_obs():
+    E_obs = xr.load_dataarray('Etot_hist_1965-2022.nc')
+    E_obs /= E_obs.sel(year = 2000)
+
+    co2 = xr.load_dataset('co2_emiss_1750-2022.nc')['co2']
+
+    return E_obs, co2
+
+
 ### the model
 
 def sigmoid(x, delta = 1):
@@ -941,10 +950,14 @@ def plot_resuvsobs_ds(resu, obs, year_ok = slice(2000, 2030), var_names = None):
     return figs
 
 
-def plot_resuvsobs(resu, year_ini = 2015, maxlen = 50, all_green = False):#, ind_ini = 0, ind_fin = 20):
+def plot_resuvsobs(resu, year_ini = 2000, year_fin = 2100, maxlen = None, all_green = False, mod_col = 'orange', obs_col = 'black', obs_name = 'obs', mod_name = 'model'):#, ind_ini = 0, ind_fin = 20):
     """
     Plots outputs vs observed green investment and green energy share.
     """
+
+    if maxlen is not None:
+        year_ini = resu.year[0]
+        year_fin = resu.year[0] + maxlen
 
     if not isinstance(resu, xr.core.dataset.Dataset):
         resu = build_resu_ds(resu, year_ini)
@@ -954,38 +967,39 @@ def plot_resuvsobs(resu, year_ini = 2015, maxlen = 50, all_green = False):#, ind
     # If = np.diff(resu['Kf'])
 
     #totle = min(maxlen, len(Ig))
-    resu = resu.isel(year = slice(0, maxlen))
+    #resu = resu.isel(year = slice(0, maxlen))
+    resu = resu.sel(year = slice(year_ini, year_fin))
 
     Ig = resu['Ig']
     If = resu['If']
 
     resu['beta'] = resu.Ig/(resu.If + resu.Ig)
 
-    resu.beta.plot(label = 'model', color = 'black')
-    # plt.plot(np.arange(year_ini, year_ini + totle), (Ig/(Ig+If))[:totle], label = 'model', color = 'black')
+    resu.beta.plot(label = mod_name, color = mod_col)
+    # plt.plot(np.arange(year_ini, year_ini + totle), (Ig/(Ig+If))[:totle], label = mod_name, color = mod_col)
     if all_green:
         print('Plotting original data of green investment from world bank')
         Ig_ratio_obs = Ig_obs_all/(Ig_obs_all+If_obs)
-        Ig_ratio_obs.plot(label = 'obs', color = 'orange')
-        #plt.plot(np.arange(2015, 2024), Ig_obs_all/(Ig_obs_all+If_obs), label = 'obs', color = 'orange')
+        Ig_ratio_obs.sel(year = slice(year_ini, year_fin)).plot(label = obs_name, color = obs_col)
+        #plt.plot(np.arange(2015, 2024), Ig_obs_all/(Ig_obs_all+If_obs), label = obs_name, color = obs_col)
     else:
         print('Plotting only data regarding investment on green power production (only part of what world bank considers green investment)')
         Ig_ratio_obs = Ig_obs/(Ig_obs+If_obs)
-        Ig_ratio_obs.plot(label = 'obs', color = 'orange')
-        #plt.plot(np.arange(2015, 2024), Ig_obs/(Ig_obs+If_obs), label = 'obs', color = 'orange')
+        Ig_ratio_obs.sel(year = slice(year_ini, year_fin)).plot(label = obs_name, color = obs_col)
+        #plt.plot(np.arange(2015, 2024), Ig_obs/(Ig_obs+If_obs), label = obs_name, color = obs_col)
 
-    plt.xlabel('time')
-    plt.ylabel('Green share of energy investment (beta)')
+    plt.xlabel('year')
+    plt.ylabel(r'Green share of energy investment ($\beta$)')
     plt.legend()
 
     fig2 = plt.figure()
     resu['Eg_ratio'] = resu['Eg']/resu['E']
-    resu['Eg_ratio'].plot(label = 'model', color = 'black')
-    Eg_ratio.plot(label = 'obs', color = 'orange')
-    # plt.plot(np.arange(year_ini, year_ini + totle), (resu['Eg']/resu['E'])[:totle], label = 'model', color = 'black')
-    # plt.plot(np.arange(year_ini, 2024), Eg_ratio[-(2024-year_ini):], label = 'obs', color = 'orange')
+    Eg_ratio.sel(year = slice(year_ini, year_fin)).plot(label = obs_name, color = obs_col)
+    resu['Eg_ratio'].plot(label = mod_name, color = mod_col)
+    # plt.plot(np.arange(year_ini, year_ini + totle), (resu['Eg']/resu['E'])[:totle], label = mod_name, color = mod_col)
+    # plt.plot(np.arange(year_ini, 2024), Eg_ratio[-(2024-year_ini):], label = obs_name, color = obs_col)
 
-    plt.xlabel('time')
+    plt.xlabel('year')
     plt.ylabel('Share of renewable energy')
     plt.legend()
 
