@@ -6,6 +6,7 @@ import matplotlib.cm as cm
 import scipy
 import xarray as xr
 import os
+import csv
 
 ################################################################################################################
 ######################################## Useful data
@@ -48,6 +49,10 @@ Pf_obs = xr.DataArray(fossil_profits, dims = ["year"], coords = {"year": np.aran
 #################################################################################################################
 #################################################################################################################
 
+def test():
+    print('Library loaded')
+    return
+
 def load_obs():
     E_obs = xr.load_dataarray('Etot_hist_1965-2022.nc')
     E_obs /= E_obs.sel(year = 2000)
@@ -82,8 +87,6 @@ def to_emissions(Ef):
     return 38.*Ef/Ef.sel(year = 2023)
 
 def get_wb_gdp_data(datadir = datadir):
-    import csv
-
     with open(datadir + 'API_NY.GDP.MKTP.CD_DS2_en_csv_v2_6298258.csv', newline='') as csvfile:
         reader = csv.reader(csvfile)
 
@@ -141,9 +144,18 @@ def inicond_yr(year):
     inicond = {'Y_ini' : 1, 'Kg_ini' : Eg_ratio.sel(year = year).values, 'Kf_ini' : (1-Eg_ratio.sel(year = year).values)/fossil_capacity_util}
     return inicond
 
+### Best fit in fit_linearY.ipynb
+best_params = default_params.copy()
+
+best_params.update({'growth': 0.0209418049925536, 
+                    'beta_0': -0.2831097084724121,
+                    'r_inv': 0.11684169484450775,
+                    'a': 0.9418414596187906,
+                    'delta_sig': 0.47990969261681554
+                    })
 
 # Params that give best fit using data of green energy share (2000-2023) and share of green energy investment (2015-2023). Cost function of energy investment is weighted at 0.1 (I_weight). Note delta_sig is at the lowest bound.
-best_params = {'growth': 0.01877564045416566,
+best_params_old = {'growth': 0.01877564045416566,
  'eps': 1,
  'a': 1,
  'b': 1,
@@ -161,7 +173,7 @@ best_params = {'growth': 0.01877564045416566,
  'f_heavy': 0.1}
 
 # Same but with I_weight = 1, which gives slightly worse energy share fit (and faster transition!)
-best_params_Iw1 = {'growth': 0.017055428532726295,
+best_params_old_Iw1 = {'growth': 0.017055428532726295,
  'eps': 1,
  'a': 1,
  'b': 1,
