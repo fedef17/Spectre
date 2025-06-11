@@ -1,0 +1,11 @@
+name: spectre
+channels:
+  - conda-forge
+dependencies:
+  - python=3.13
+  - numpy
+  - matplotlib
+  - scipy
+  - xarray
+  - jupyter
+  - ipykernel
