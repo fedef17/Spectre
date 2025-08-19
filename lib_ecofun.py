@@ -134,6 +134,13 @@ default_params['delta_f'] = 0.01 # Depreciation of infrastructure/capital (fossi
 
 default_params['f_heavy'] = 0.1 # Fraction of total production not willing to go green (e.g. military, heavy industry) [0-1]
 
+default_params['r_inv_state'] = 0.01
+# default_params['mu_g'] = 1.5
+# default_params['mu_f'] = 1
+# default_params['delta_sig_state'] = 0.5
+
+##########################################
+
 default_inicond = {'Y_ini' : 1, 'Kg_ini' : 0.1, 'Kf_ini' : 0.9}
 
 fossil_capacity_util = 0.5 # E/E_max at start; for oil is 0.8 (data from energy institute), but unknown for coal and gas, so likely smaller than 0.8
@@ -340,7 +347,103 @@ def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_
     return Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, success
 
 
-def define_Eg(E, Kg, Kf, a, b, f_heavy, rule = 'maxgreen', verbose = False):
+def forward_step_with_state(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_type = 'cdf', verbose = False, raise_bnd_err = False, linear_gdp = None, mu_state = 0.5):
+    """
+    Expansion with public investment.
+    """
+    success = 0
+
+    #### params ####
+    growth = params['growth']
+    eps = params['eps']
+    a = params['a']
+    b = params['b']
+    gamma_g = params['gamma_g']
+    gamma_f = params['gamma_f']
+    eta_g = params['eta_g']
+    eta_f = params['eta_f']
+    h_g = params['h_g']
+    h_f = params['h_f']
+    r_inv = params['r_inv']
+    beta_0 = params['beta_0']
+    delta_sig = params['delta_sig']
+    delta_g = params['delta_g']
+    delta_f = params['delta_f']
+    f_heavy = params['f_heavy']
+
+    ## public inv
+    r_inv_state = params['r_inv_state']
+    # mu_g = params['mu_g']
+    # mu_f = params['mu_f']
+    # delta_sig_state = params['delta_sig_state']
+
+    #########
+    if verbose: print('params: ', params)
+
+    ## Total production? # opt 1: exogenous growing Y, tot energy proportional to Y
+    E = eps * Y
+
+    ### improve: energy demand is not all the same. energy for fossil-fuel cars, heavy industry, gas heating,... must be fossil. Electricity generation can easily be both. Converting fossil-locked energy demand to green energy demand requires converting the downstream infrastructure as well, which requires more investment (and more energy..). This could be represented through the "fossil_constraint" strategy.
+
+    ## Satisfying energy demand through green and fossil energy production. 
+    Eg, Ef, success = define_Eg(E, Kg, Kf, a, b, f_heavy, Y, rule = 'maxgreen', verbose = False, success = success)
+    
+    if E == Eg: 
+        if verbose: print('Transition completed!')
+        success = 1
+
+    ### PRIVATE INVESTMENT
+
+    ## Profit of energy production
+    Pg = gamma_g * (Eg - eta_g * Eg**h_g)
+    Pf = gamma_f * (Ef - eta_f * Ef**h_f)
+    if Pf < 0.: Pf = gamma_f * (1 - eta_f) * Ef # linearity for small Ef
+    if Pg < 0.: Pg = gamma_g * (1 - eta_g) * Eg # linearity for small Eg
+
+    ## Investment in energy production
+    pr = prof_ratio(Pg, Pf, Kg, Kf)
+    beta = beta_fun(beta_0, pr, delta_sig = delta_sig, ftype = betafun_type)
+    
+    Ig = beta * r_inv * (Pg + Pf)
+    If = (1-beta) * r_inv * (Pg + Pf)
+    if verbose: print(('check: ' + 8*'{:10.2f}').format(beta, pr, Eg, Ef, Pg, Pf, Ig, If))
+
+    ### PUBLIC INVESTMENT
+
+    S = r_inv_state * Y
+    ### improve: make mu depend on the ratio of elasticities (not ready! missing a dynamics for Y_g, Y_f)
+    # er = el_ratio(mu_g, mu_f) # ratio of elasticities
+    # mu_state = beta_fun(0., er, delta_sig = delta_sig_state, ftype = betafun_type) # using beta_fun with beta_0 = 0
+    Sg = mu_state * S
+    Sf = (1-mu_state) * S
+
+    ## for next step
+    ## Capital/infrastructure
+    if verbose and Ig + Sg < Kg*delta_g: print(f'Green infrastructure decreasing! {Ig+Sg} < {Kg*delta_g}')
+    if verbose and If + Sf < Kf*delta_f: print(f'Fossil infrastructure decreasing! {If+Sf} < {Kf*delta_f}')
+
+    Kg = Ig + Sg + Kg * (1-delta_g)
+    Kf = If + Sf + Kf * (1-delta_f)
+    Y = GDP(Y, growth = growth, linear_gdp = linear_gdp)
+
+    Kg, Kf, Eg, Ef, beta, E, Y = check_bounds(Kg, Kf, Eg, Ef, beta, E, Y, raise_err = raise_bnd_err)
+
+    return Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, success
+
+
+def el_ratio(mu_g, mu_f):
+    """
+    The function computes the ratio of elasticities of green and fossil capital to the respective public energy investment. mu_g = dY/dS_g, mu_f = dY/dS_f
+
+    for now very trivial: mu_g and mu_f are exogenous. in potential, could be less trivial if we had an internal dynamics for Y_g and Y_f
+    """
+
+    er = (mu_g - mu_f)/(mu_g + mu_f)
+
+    return er
+
+
+def define_Eg(E, Kg, Kf, a, b, f_heavy, Y, rule = 'maxgreen', verbose = True, success = 0):
     # Energy and infrastructure
     Eg_max = a * Kg # a = 1
     Ef_max = b * Kf # b time dependent, exog. should decrease to 0
@@ -348,7 +451,6 @@ def define_Eg(E, Kg, Kf, a, b, f_heavy, rule = 'maxgreen', verbose = False):
     if Eg_max + Ef_max < E: 
         success = 2
         if verbose: print(f'Energy scarcity! {Eg_max} {Ef_max} {E}')
-        # raise ValueError(f'Energy scarcity! {Eg_max} {Ef_max} {E}')
 
     if rule == 'maxgreen':
         Eg = Eg_max
@@ -359,6 +461,12 @@ def define_Eg(E, Kg, Kf, a, b, f_heavy, rule = 'maxgreen', verbose = False):
     elif rule == 'proportional':
         Eg = Kg/(Kg+Kf) * E
         Ef = Kf/(Kg+Kf) * E
+    elif rule == 'fair':
+        if Ef_max >= E/2.:
+            Ef = E/2.
+        else:
+            Ef = Ef_max
+        Eg = E - Ef
     elif rule == 'whole_capacity': # This makes Y useless
         Eg = Kg
         Ef = Kf
@@ -371,7 +479,7 @@ def define_Eg(E, Kg, Kf, a, b, f_heavy, rule = 'maxgreen', verbose = False):
             Eg = Eg_max
             Ef = E-Eg
     
-    return Eg, Ef
+    return Eg, Ef, success
 
 
 def backward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_type = 'cdf', verbose = False, raise_bnd_err = False):
@@ -522,7 +630,7 @@ def set_params(params, years, verbose = False):
     return okpar, allow_param_scenario
 
 
-def run_model(inicond = default_inicond, params = default_params, n_iter = 100, rule = 'maxgreen', betafun_type = 'cdf', verbose = True, run_backwards = False, raise_bnd_err = False, year_ini = None, extend_constant = False, linear_gdp = None):
+def run_model(inicond = default_inicond, params = default_params, n_iter = 100, rule = 'maxgreen', betafun_type = 'cdf', verbose = True, run_backwards = False, raise_bnd_err = False, year_ini = None, extend_constant = False, linear_gdp = None, public_investment = False, mu_state_scenario = None):
     """
 
     Runs the model. Returns list of lists of outputs: [Y, Kg, Kf, E, Eg, Ef]  (can be improved!)
@@ -534,6 +642,9 @@ def run_model(inicond = default_inicond, params = default_params, n_iter = 100, 
     """
     if year_ini is None:
         raise ValueError(f'{year_ini} not set!')
+    
+    if run_backwards:
+        raise ValueError('Removed, if needed uncomment code below')
 
     Y = inicond['Y_ini']
     Kg = inicond['Kg_ini']
@@ -542,6 +653,9 @@ def run_model(inicond = default_inicond, params = default_params, n_iter = 100, 
     years = np.arange(year_ini, year_ini + n_iter)
     params_ok, allow_param_scenario = set_params(params, years)
     okpar = params.copy()
+
+    if public_investment:
+        if mu_state_scenario is None: raise ValueError("Missing scenario for green share of public energy investment (mu_state_scenario)")
 
     resu = []
     for i in range(n_iter):
@@ -559,10 +673,17 @@ def run_model(inicond = default_inicond, params = default_params, n_iter = 100, 
                     print('checkpar', i)
                     okpar[par] = params_ok[par][i]
 
-        if not run_backwards:
-            Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, success = forward_step(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err= raise_bnd_err, linear_gdp = linear_gdp)
+        if public_investment:
+            ymax = mu_state_scenario.year.max().values
+            yok = min(year_ini + i, ymax)
+            mu_state = mu_state_scenario.sel(year = yok).values
+            
+            Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, success = forward_step_with_state(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err= raise_bnd_err, linear_gdp = linear_gdp, mu_state = mu_state)
         else:
-            Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, success = backward_step(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err=raise_bnd_err)
+            Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, success = forward_step(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err= raise_bnd_err, linear_gdp = linear_gdp)
+
+        # if run_backwards: # removed compatibility
+        #     Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, success = backward_step(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err=raise_bnd_err)
 
         resu.append([Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf])
         if success == 0: 
