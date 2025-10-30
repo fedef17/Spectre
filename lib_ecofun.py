@@ -15,11 +15,15 @@ datadir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../data/")
 
 ########## data on investment from IEA (2015 to 2023). https://www.iea.org/reports/world-energy-investment-2023/overview-and-key-findings
 
+# The estimates of electricity investment presented in WEI 2023 correspond to
+# annual capital spending on new power plants, battery storage and grid assets, or
+# the replacement of old assets or refurbishments for life extensions.
+
 lista = '1074 1319 1132 1105 1129 1114 1137 1109 1225 1066 1259 839 1408 914 1617 1002 1740 1050'.split()
 Ig_obs_all = np.array(lista[0::2]).astype(float)
 If_obs = np.array(lista[1::2]).astype(float)
 
-# Data on green investment for energy production only (only "Renewable power" in clean energy spending)
+# Data on green investment for energy production only (only "Renewable power" in clean energy spending) billion USD
 Ig_obs = np.array('331 340 351 377 451 494 517 596 659'.split()).astype(float)
 
 Ig_obs = xr.DataArray(Ig_obs, dims = ["year"], coords = {"year": np.arange(2015, 2024)})
@@ -45,6 +49,13 @@ fossil_profits = np.array([0.11, 0.14, 0.22, 0.91, 0.8 , 0.9 , 0.93, 0.88, 1.66,
        1. , 0.79, 1.11, 1.61, 1.35, 0.87])
 
 Pf_obs = xr.DataArray(fossil_profits, dims = ["year"], coords = {"year": np.arange(1971, 2021)})
+
+######################################################################
+
+# Public investment in renewables from IRENA https://www.irena.org/Publications/2024/Jul/Renewable-energy-statistics-2024 
+# yeas = [2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022]
+S_obs = [20024.60, 26487.46, 19466.29, 35188.13, 31186.49, 24778.59, 17403.46, 17447.64, 19630.40, 21676.69]
+S_obs = xr.DataArray(S_obs, dims = ["year"], coords = {"year": np.arange(2013, 2023)})/1e3 # now in billions USD
 
 #################################################################################################################
 #################################################################################################################
@@ -86,7 +97,7 @@ def to_emissions(Ef):
     """
     return 38.*Ef/Ef.sel(year = 2023)
 
-def get_wb_gdp_data(datadir = datadir):
+def get_wb_gdp_data(datadir = datadir): # 2024: 173 trillions USD (our world in data)
     with open(datadir + 'API_NY.GDP.MKTP.CD_DS2_en_csv_v2_6298258.csv', newline='') as csvfile:
         reader = csv.reader(csvfile)
 
@@ -103,9 +114,35 @@ def get_wb_gdp_data(datadir = datadir):
     gdp = np.array(row_wld[4:-1], dtype = float)
     years = np.arange(1960, 2023)
 
-    gdp = xr.DataArray(gdp, dims = ["year"], coords = {"year": np.arange(1960, 2023)})
+    gdp = xr.DataArray(gdp, dims = ["year"], coords = {"year": np.arange(1960, 2023)})/1e9 # now in billions USD
 
     return gdp
+
+def get_IRENA_public_inv(filename = '../data/IRENA_Stats_extract_2024_H2.nc'):
+    """
+    Data on public investment from IRENA 2024
+    """
+    gigi = xr.load_dataset(filename)/1e3 # Now in billions USD
+
+    return gigi
+
+
+def get_OWID_IEA_fossil_subs(filename = '../data/fossil_subsidies_owid.nc'):
+    """
+    Data on public investment in fossil from OWID (IEA)
+    """
+    gigi = xr.load_dataset(filename) # in billions USD
+
+    return gigi
+
+
+def get_IISD_green_subs(filename = '../data/IISD_green_support.nc'):
+    """
+    Data on public investment in green from IISD.
+    """
+    gigi = xr.load_dataset(filename) # in billions USD
+
+    return gigi
 
 ########################### parameters ###########################################################################
 
@@ -316,10 +353,17 @@ def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_
     #Y = l * E_max
 
     ## Profit of energy production
-    Pg = gamma_g * (Eg - eta_g * Eg**h_g)
-    Pf = gamma_f * (Ef - eta_f * Ef**h_f)
-    if Pf < 0.: Pf = gamma_f * (1 - eta_f) * Ef # linearity for small Ef
-    if Pg < 0.: Pg = gamma_g * (1 - eta_g) * Eg # linearity for small Eg
+    Cg = eta_g * Eg**h_g
+    Cf = eta_f * Ef**h_f
+
+    Pg = gamma_g * (Eg - Cg)
+    Pf = gamma_f * (Ef - Cf)
+    if Pf < 0.: 
+        Pf = gamma_f * (1 - eta_f) * Ef # linearity for small Ef
+        Cf = eta_f*Ef
+    if Pg < 0.: 
+        Pg = gamma_g * (1 - eta_g) * Eg # linearity for small Eg
+        Cg = eta_g*Eg
 
     ## Investment in energy production
     pr = prof_ratio(Pg, Pf, Kg, Kf)
@@ -344,12 +388,12 @@ def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_
     #     Kf = (Kf - If)/(1-delta_f)
     #     Y = GDP(Y, growth = growth, invert_time = True)
 
-    return Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, success
+    return Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, Cg, Cf, success
 
 
 def forward_step_with_state(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_type = 'cdf', verbose = False, raise_bnd_err = False, linear_gdp = None, mu_state = 0.5):
     """
-    Expansion with public investment.
+    Expansion with public investment. Public investment is directed as subsidies, which reduce firms' costs, hence increasing their profits.
     """
     success = 0
 
@@ -386,27 +430,11 @@ def forward_step_with_state(Y, Kg, Kf, params = default_params, rule = 'maxgreen
     ### improve: energy demand is not all the same. energy for fossil-fuel cars, heavy industry, gas heating,... must be fossil. Electricity generation can easily be both. Converting fossil-locked energy demand to green energy demand requires converting the downstream infrastructure as well, which requires more investment (and more energy..). This could be represented through the "fossil_constraint" strategy.
 
     ## Satisfying energy demand through green and fossil energy production. 
-    Eg, Ef, success = define_Eg(E, Kg, Kf, a, b, f_heavy, Y, rule = 'maxgreen', verbose = False, success = success)
+    Eg, Ef, success = define_Eg(E, Kg, Kf, a, b, f_heavy, Y, rule = rule, verbose = False, success = success)
     
     if E == Eg: 
         if verbose: print('Transition completed!')
         success = 1
-
-    ### PRIVATE INVESTMENT
-
-    ## Profit of energy production
-    Pg = gamma_g * (Eg - eta_g * Eg**h_g)
-    Pf = gamma_f * (Ef - eta_f * Ef**h_f)
-    if Pf < 0.: Pf = gamma_f * (1 - eta_f) * Ef # linearity for small Ef
-    if Pg < 0.: Pg = gamma_g * (1 - eta_g) * Eg # linearity for small Eg
-
-    ## Investment in energy production
-    pr = prof_ratio(Pg, Pf, Kg, Kf)
-    beta = beta_fun(beta_0, pr, delta_sig = delta_sig, ftype = betafun_type)
-    
-    Ig = beta * r_inv * (Pg + Pf)
-    If = (1-beta) * r_inv * (Pg + Pf)
-    if verbose: print(('check: ' + 8*'{:10.2f}').format(beta, pr, Eg, Ef, Pg, Pf, Ig, If))
 
     ### PUBLIC INVESTMENT
 
@@ -417,18 +445,43 @@ def forward_step_with_state(Y, Kg, Kf, params = default_params, rule = 'maxgreen
     Sg = mu_state * S
     Sf = (1-mu_state) * S
 
+    ## Profit of energy production
+    Cg = eta_g * Eg**h_g
+    Cf = eta_f * Ef**h_f
+
+    Pg = gamma_g * (Eg - Cg) + Sg # Sg should act on Cg and be limited to it? no, also investment in infrastructuree
+    Pf = gamma_f * (Ef - Cf) + Sf
+    if Pf < 0.: 
+        Pf = gamma_f * (1 - eta_f) * Ef + Sf # linearity for small Ef
+        Cf = eta_f*Ef
+    if Pg < 0.: 
+        Pg = gamma_g * (1 - eta_g) * Eg + Sg # linearity for small Eg
+        Cg = eta_g*Eg
+
+    ### PRIVATE INVESTMENT
+
+    ## Investment in energy production
+    pr = prof_ratio(Pg, Pf, Kg, Kf)
+    beta = beta_fun(beta_0, pr, delta_sig = delta_sig, ftype = betafun_type)
+    
+    Ig = beta * r_inv * (Pg + Pf)
+    If = (1-beta) * r_inv * (Pg + Pf)
+    if verbose: print(('check: ' + 8*'{:10.2f}').format(beta, pr, Eg, Ef, Pg, Pf, Ig, If))
+
     ## for next step
     ## Capital/infrastructure
-    if verbose and Ig + Sg < Kg*delta_g: print(f'Green infrastructure decreasing! {Ig+Sg} < {Kg*delta_g}')
-    if verbose and If + Sf < Kf*delta_f: print(f'Fossil infrastructure decreasing! {If+Sf} < {Kf*delta_f}')
+    if verbose and Ig < Kg*delta_g: print(f'Green infrastructure decreasing! {Ig} < {Kg*delta_g}')
+    if verbose and If < Kf*delta_f: print(f'Fossil infrastructure decreasing! {If} < {Kf*delta_f}')
 
-    Kg = Ig + Sg + Kg * (1-delta_g)
-    Kf = If + Sf + Kf * (1-delta_f)
+    # Kg = Ig + Sg + Kg * (1-delta_g) # if S goes to infrastructure directly, it competes with private investment instead of favoring it
+    # Kf = If + Sf + Kf * (1-delta_f)
+    Kg = Ig + Kg * (1-delta_g)
+    Kf = If + Kf * (1-delta_f)
     Y = GDP(Y, growth = growth, linear_gdp = linear_gdp)
 
     Kg, Kf, Eg, Ef, beta, E, Y = check_bounds(Kg, Kf, Eg, Ef, beta, E, Y, raise_err = raise_bnd_err)
 
-    return Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, success
+    return Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, Cg, Cf, success
 
 
 def el_ratio(mu_g, mu_f):
@@ -678,14 +731,14 @@ def run_model(inicond = default_inicond, params = default_params, n_iter = 100, 
             yok = min(year_ini + i, ymax)
             mu_state = mu_state_scenario.sel(year = yok).values
             
-            Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, success = forward_step_with_state(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err= raise_bnd_err, linear_gdp = linear_gdp, mu_state = mu_state)
+            Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, Cg, Cf, success = forward_step_with_state(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err= raise_bnd_err, linear_gdp = linear_gdp, mu_state = mu_state)
         else:
-            Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, success = forward_step(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err= raise_bnd_err, linear_gdp = linear_gdp)
+            Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, Cg, Cf, success = forward_step(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err= raise_bnd_err, linear_gdp = linear_gdp)
 
         # if run_backwards: # removed compatibility
-        #     Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, success = backward_step(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err=raise_bnd_err)
+        #     Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, Cg, Cf, success = backward_step(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err=raise_bnd_err)
 
-        resu.append([Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf])
+        resu.append([Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, Cg, Cf])
         if success == 0: 
             continue
         elif success == 1:
@@ -741,17 +794,20 @@ def rebuild_resu(resu, run_backwards = False):
     If = resu[:, 7]
     Pg = resu[:, 8]
     Pf = resu[:, 9]
+    Cg = resu[:, 10]
+    Cf = resu[:, 11]
     if run_backwards:
-        Ys = Ys[::-1]
-        Kgs = Kgs[::-1]
-        Kfs = Kfs[::-1]
-        E = E[::-1]
-        Eg = Eg[::-1]
-        Ef = Ef[::-1]
-        Ig = Ig[::-1]
-        If = If[::-1]
-        Pg = Pg[::-1]
-        Pf = Pf[::-1]
+        raise ValueError('not supported')
+        # Ys = Ys[::-1]
+        # Kgs = Kgs[::-1]
+        # Kfs = Kfs[::-1]
+        # E = E[::-1]
+        # Eg = Eg[::-1]
+        # Ef = Ef[::-1]
+        # Ig = Ig[::-1]
+        # If = If[::-1]
+        # Pg = Pg[::-1]
+        # Pf = Pf[::-1]
 
     ok_resu = dict()
     ok_resu['Y'] = Ys
@@ -766,6 +822,8 @@ def rebuild_resu(resu, run_backwards = False):
     ok_resu['Pf'] = Pf
     ok_resu['Ig_ratio'] = Ig/(Ig+If)
     ok_resu['Eg_ratio'] = Eg/E
+    ok_resu['Cg'] = Cg
+    ok_resu['Cf'] = Cf
 
     return ok_resu
 
@@ -782,13 +840,13 @@ def build_resu_ds(resu, year_ini):
     return ds
 
 
-def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'], params = default_params.copy(), year_ini = 2015, inicond = inicond_2015, verbose = False, all_green = False, I_weight = 1., obs = None, linear_gdp = None):
+def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'], params = default_params.copy(), year_ini = 2015, inicond = inicond_2015, verbose = False, obs = None, public_investment = False, mu_state_scenario = None, linear_gdp = None, obs_weights = None, break_on_scarcity = False):
     """
     Fit model to (year_ini - 2025) obs.
     """
 
     if verbose:
-        print(all_green, I_weight, obs, linear_gdp)
+        print(obs, linear_gdp, public_investment, mu_state_scenario)
         
     n_iter = 2025 - year_ini
     years = np.arange(year_ini, 2025)
@@ -815,29 +873,14 @@ def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'
     #         params[pnam] = parval
     
     params['gamma_f'] = params['gamma_g']
-    #print('----')
-    #print(params)
-    #print('---------------------')
-    resu = run_model(inicond = inicond, params = params, n_iter = n_iter, year_ini = year_ini, verbose = verbose, rule = 'maxgreen', extend_constant = True, linear_gdp = linear_gdp)
-    #print(len(resu['Eg']))
 
-    # What to fit on
-    if obs is None:
-        obs = dict()
-        if all_green:
-            obs['Ig_ratio'] = Ig_obs_all/(Ig_obs_all+If_obs)
-        else:
-            obs['Ig_ratio'] = Ig_obs/(Ig_obs+If_obs)
-        obs['Eg_ratio'] = Eg_ratio
-    
-    if I_weight < 1.:
-        weights = {'Ig_ratio': I_weight, 'Eg_ratio': 1.-I_weight}
-    else:
-        weights = None
+    resu = run_model(inicond = inicond, params = params, n_iter = n_iter, year_ini = year_ini, verbose = verbose, rule = 'maxgreen', extend_constant = True, linear_gdp = linear_gdp, public_investment = public_investment, mu_state_scenario = mu_state_scenario)
 
-    cost = costfun(resu, obs, weights = weights)
+    cost = costfun(resu, obs, weights = obs_weights)
 
-    #cost = costfun_1524(resu, year_ini = year_ini, I_weight = I_weight, all_green = all_green)
+    if break_on_scarcity and not resu.success:
+        return np.nan
+
     if verbose: print(f'Cost: {cost}')
 
     return cost
