@@ -840,7 +840,7 @@ def build_resu_ds(resu, year_ini):
     return ds
 
 
-def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'], params = default_params.copy(), year_ini = 2015, inicond = inicond_2015, verbose = False, obs = None, public_investment = False, mu_state_scenario = None, linear_gdp = None, obs_weights = None, break_on_scarcity = False):
+def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'], params = default_params.copy(), year_ini = 2015, inicond = inicond_2015, verbose = False, obs = None, public_investment = False, mu_state_scenario = None, linear_gdp = None, obs_weights = None, break_on_scarcity = True):
     """
     Fit model to (year_ini - 2025) obs.
     """
@@ -879,7 +879,7 @@ def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'
     cost = costfun(resu, obs, weights = obs_weights)
 
     if break_on_scarcity and not resu.success:
-        return np.nan
+        return 100.
 
     if verbose: print(f'Cost: {cost}')
 
