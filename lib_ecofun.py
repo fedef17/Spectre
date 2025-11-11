@@ -272,11 +272,11 @@ def beta_fun(beta_0, prof_ratio, delta_sig = 1., ftype = 'cdf'):
     return beta
 
 
-def prof_ratio(Pg, Pf, Kg, Kf):
+def prof_ratio(Pg, Pf, Kg, Kf, small = 1e-5):
     """
     Estimates the ratio of profits per unit investment (normalized).
     """
-    return (Pg/Kg - Pf/Kf)/(Pg/Kg+Pf/Kf)
+    return (Pg/Kg - Pf/Kf)/(Pg/Kg+Pf/Kf+small)
     #return (Pg/Kg - Pf/Kf)/((Pg+Pf)/(Kg+Kf))
 
 def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_type = 'cdf', verbose = False, raise_bnd_err = False, linear_gdp = None):
@@ -302,6 +302,7 @@ def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_
     delta_g = params['delta_g']
     delta_f = params['delta_f']
     f_heavy = params['f_heavy']
+    etamax = 0.9
     #########
     if verbose: print('params: ', params)
 
@@ -353,17 +354,13 @@ def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_
     #Y = l * E_max
 
     ## Profit of energy production
-    Cg = eta_g * Eg**h_g
-    Cf = eta_f * Ef**h_f
+    Cg = 0
+    Cf = 0
+    if Eg > 0: Cg = min([eta_g * Eg**h_g, etamax*Eg])
+    if Ef > 0: Cf = min([eta_f * Ef**h_f, etamax*Ef])
 
     Pg = gamma_g * (Eg - Cg)
     Pf = gamma_f * (Ef - Cf)
-    if Pf < 0.: 
-        Pf = gamma_f * (1 - eta_f) * Ef # linearity for small Ef
-        Cf = eta_f*Ef
-    if Pg < 0.: 
-        Pg = gamma_g * (1 - eta_g) * Eg # linearity for small Eg
-        Cg = eta_g*Eg
 
     ## Investment in energy production
     pr = prof_ratio(Pg, Pf, Kg, Kf)
@@ -414,6 +411,7 @@ def forward_step_with_state(Y, Kg, Kf, params = default_params, rule = 'maxgreen
     delta_g = params['delta_g']
     delta_f = params['delta_f']
     f_heavy = params['f_heavy']
+    etamax = 0.9
 
     ## public inv
     r_inv_state = params['r_inv_state']
@@ -446,18 +444,21 @@ def forward_step_with_state(Y, Kg, Kf, params = default_params, rule = 'maxgreen
     Sf = (1-mu_state) * S
 
     ## Profit of energy production
-    Cg = eta_g * Eg**h_g
-    Cf = eta_f * Ef**h_f
+    Cg = 0
+    Cf = 0
+    if Eg > 0: Cg = min([eta_g * Eg**h_g, etamax*Eg])
+    if Ef > 0: Cf = min([eta_f * Ef**h_f, etamax*Ef])
+
+    # This creates a discontinuity in the costs:
+    # if Pf < 0.: 
+    #     Pf = gamma_f * (1 - eta_f) * Ef + Sf # linearity for small Ef
+    #     Cf = eta_f*Ef
+    # if Pg < 0.: 
+    #     Pg = gamma_g * (1 - eta_g) * Eg + Sg # linearity for small Eg
+    #     Cg = eta_g*Eg
 
     Pg = gamma_g * (Eg - Cg) + Sg # Sg should act on Cg and be limited to it? no, also investment in infrastructuree
     Pf = gamma_f * (Ef - Cf) + Sf
-    if Pf < 0.: 
-        Pf = gamma_f * (1 - eta_f) * Ef + Sf # linearity for small Ef
-        Cf = eta_f*Ef
-    if Pg < 0.: 
-        Pg = gamma_g * (1 - eta_g) * Eg + Sg # linearity for small Eg
-        Cg = eta_g*Eg
-
     ### PRIVATE INVESTMENT
 
     ## Investment in energy production
@@ -758,9 +759,14 @@ def run_model(inicond = default_inicond, params = default_params, n_iter = 100, 
 
     resu = rebuild_resu(resu, run_backwards = run_backwards)
     
+    if success == 2:
+        resu['success'] = False
+    else:
+        resu['success'] = True
+    
     if not run_backwards:
         if success == 1: 
-            resu['success'] = True
+            resu['transition'] = True
             resu['year_zero'] = i
             resu['year_peak'] = np.argmax(resu['Ef'])
 
@@ -770,7 +776,7 @@ def run_model(inicond = default_inicond, params = default_params, n_iter = 100, 
             if verbose: print('Peak fossil: {}'.format(resu['year_peak']))
             if verbose: print('Halved fossil: {}'.format(resu['year_halved']))
         else:
-            resu['success'] = False
+            resu['transition'] = False
             resu['year_zero'] = np.nan
             resu['year_peak'] = np.nan
             resu['year_halved'] = np.nan
@@ -840,10 +846,12 @@ def build_resu_ds(resu, year_ini):
     return ds
 
 
-def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'], params = default_params.copy(), year_ini = 2015, inicond = inicond_2015, verbose = False, obs = None, public_investment = False, mu_state_scenario = None, linear_gdp = None, obs_weights = None, break_on_scarcity = True):
+def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'], params = default_params.copy(), year_ini = 2015, inicond = inicond_2015, verbose = False, obs = None, public_investment = False, mu_state_scenario = None, linear_gdp = None, obs_weights = None, param_bounds = None, break_on_scarcity = False, cost_low = 0.05):
     """
     Fit model to (year_ini - 2025) obs.
     """
+
+    large = 100.
 
     if verbose:
         print(obs, linear_gdp, public_investment, mu_state_scenario)
@@ -874,14 +882,27 @@ def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'
     
     params['gamma_f'] = params['gamma_g']
 
+    # if param_bounds is not None:
+    #     for par in pardict:
+    #         if par in param_bounds:
+    #             if pardict[par] < param_bounds[par][0] or pardict[par] > param_bounds[par][1]:
+    #                 print(f'Param {par} out of bounds')
+    #                 return large
+
     resu = run_model(inicond = inicond, params = params, n_iter = n_iter, year_ini = year_ini, verbose = verbose, rule = 'maxgreen', extend_constant = True, linear_gdp = linear_gdp, public_investment = public_investment, mu_state_scenario = mu_state_scenario)
 
     cost = costfun(resu, obs, weights = obs_weights)
 
-    if break_on_scarcity and not resu.success:
-        return 100.
+    # if break_on_scarcity: raise ValueError('scarcity')
+    
+    if not resu.success:
+        if verbose: print(f'Not successful, returning {large}')
+        return large
 
     if verbose: print(f'Cost: {cost}')
+
+    if cost < cost_low:
+        print('Cost: ', cost, 'params: ', params)
 
     return cost
 
@@ -1013,6 +1034,11 @@ def costfun(resu, obs, weights = None, verbose = False):
     If given, weights should be a dictionary with weights for all variables in obs.
     """
 
+    large = 100.
+    if not resu.success:
+        if verbose: print(f'Not successful, returning {large}')
+        return large
+    
     cost = []
 
     if verbose:
@@ -1103,16 +1129,32 @@ def costfun_hist(resu, year_ini = 2000, I_weight = 1., all_green = False):
     return I_weight * cost_I + cost_Eg
 
 
-def plot_resuvsobs_ds(resu, obs, year_ok = slice(2000, 2030), var_names = None):
+def plot_resuvsobs_ds(resu, obs, year_ok = slice(2000, 2030), var_names = None, run_names = [], greystyle = False, colors = []):
     """
     Generic plot function for whatever is inside obs. Resu is a dataset and obs is a dict of dataarrays with 'year' axis.
     """
-
+        
     figs = []
     for var in obs:
         fig = plt.figure()
-        obspl = obs[var].sel(year = year_ok).plot(label = 'obs', color = 'orange')
-        resupl = resu[var].sel(year = year_ok).plot(label = 'model', color = 'black')
+
+        if isinstance(resu, xr.Dataset):
+            resupl = resu[var].sel(year = year_ok).plot(label = 'model', color = 'orange')
+        elif isinstance(resu, list):
+            if run_names == []:
+                run_names = [f'run {i}' for i in range(len(resu))]
+
+            if colors == []:
+                colors = [None]*len(resu)
+
+            for res, nam, col in zip(resu, run_names, colors):
+                if not greystyle:
+                    resupl = res[var].sel(year = year_ok).plot(label = nam)
+                else:
+                    if col is None: col = 'grey'
+                    resupl = res[var].sel(year = year_ok).plot(color = col, lw = 0.2)
+
+        obspl = obs[var].sel(year = year_ok).plot(label = 'obs', color = 'black')
 
         plt.xlabel('year')
         if var_names is not None:
@@ -1120,7 +1162,7 @@ def plot_resuvsobs_ds(resu, obs, year_ok = slice(2000, 2030), var_names = None):
         else:
             plt.ylabel(var)
 
-        plt.legend()
+        if not greystyle: plt.legend()
         figs.append(fig)
 
     return figs
@@ -1259,3 +1301,166 @@ def plot_resu(resu, year_ini = None, title = None):
         plt.title(title)
 
     return fig, fig2
+
+
+######## Tuning
+import re
+
+def parse_line(line):
+    """Parse a line and extract cost and params dict"""
+    # Extract cost
+    cost_match = re.search(r'Cost:\s+([\d.e+-]+)', line)
+    if not cost_match:
+        return None, None
+    cost = float(cost_match.group(1))
+    
+    # Extract params dict string
+    params_match = re.search(r'params:\s+(\{.+\})', line)
+    if not params_match:
+        return None, None
+    
+    params_str = params_match.group(1)
+    
+    # Convert np.float64(...) to regular floats for eval
+    params_str = re.sub(r'np\.float64\(([\d.e+-]+)\)', r'\1', params_str)
+    
+    # Safely evaluate the dict
+    try:
+        params = eval(params_str)
+        return cost, params
+    except:
+        return None, None
+
+
+def read_costs_from_log(filename):
+    """
+    Read txt file and extract costs and params, segmented by "AAAAAAA" lines
+    
+    Args:
+        filename: path to txt file
+    
+    Returns:
+        all_costs: list of cost lists (one per segment)
+        all_params: list of param lists (one per segment)
+    """
+    all_costs = []
+    all_params = []
+    
+    current_costs = []
+    current_params = []
+    
+    with open(filename, 'r') as f:
+        for line in f:
+            # Check for segment separator
+            if line.strip().startswith("AAAAAAA"):
+                # Save current segment if not empty
+                if current_costs:
+                    all_costs.append(current_costs)
+                    all_params.append(current_params)
+                # Start new segment
+                current_costs = []
+                current_params = []
+            else:
+                # Parse line
+                cost, param = parse_line(line)
+                if cost is not None:
+                    current_costs.append(cost)
+                    current_params.append(param)
+    
+    # Add last segment if not empty
+    if current_costs:
+        all_costs.append(current_costs)
+        all_params.append(current_params)
+    
+    return all_costs, all_params
+
+
+def filter_costs(costs, params, percentile=10):
+    """
+    Filter costs and params by percentile threshold
+    
+    Args:
+        costs: list of costs
+        params: list of param dicts
+        percentile: keep only entries with cost <= this percentile (default 10)
+    
+    Returns:
+        costs_filtered: list of costs in the percentile
+        params_filtered: list of param dicts in the percentile
+    """
+    # Calculate percentile threshold
+    threshold = np.percentile(costs, percentile)
+    
+    # Filter by percentile
+    costs_filtered = []
+    params_filtered = []
+    
+    for cost, param in zip(costs, params):
+        if cost <= threshold:
+            costs_filtered.append(cost)
+            params_filtered.append(param)
+    
+    return costs_filtered, params_filtered
+
+def filter_by_bounds(costs, params, param_bounds):
+    """
+    Filter out entries where parameters are outside specified bounds
+    
+    Args:
+        costs: list of costs
+        params: list of param dicts
+        param_bounds: dict with param names as keys and (min, max) tuples as values
+                     Example: {'a': (0.5, 1.0), 'b': (0.0, 2.0)}
+    
+    Returns:
+        costs_filtered: list of costs within bounds
+        params_filtered: list of param dicts within bounds
+    """
+    
+    costs_filtered = []
+    params_filtered = []
+    
+    for cost, pardict in zip(costs, params):
+        # Check if all params are within bounds
+        within_bounds = True
+        for par in pardict:
+            if par in param_bounds:
+                if pardict[par] < param_bounds[par][0] or pardict[par] > param_bounds[par][1]:
+                    within_bounds = False
+                    break
+        
+        if within_bounds:
+            costs_filtered.append(cost)
+            params_filtered.append(pardict)
+    
+    return costs_filtered, params_filtered
+
+
+def plot_param_histograms(params):
+    """Plot histogram for each parameter in a multi-panel figure"""
+    
+    # Get all parameter keys
+    param_keys = sorted(set(k for p in params for k in p.keys()))
+    
+    # Calculate grid dimensions
+    n_params = len(param_keys)
+    n_cols = int(np.ceil(np.sqrt(n_params)))
+    n_rows = int(np.ceil(n_params / n_cols))
+    
+    # Create figure
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(n_cols * 3, n_rows * 2))
+    axes = axes.flatten() if n_params > 1 else [axes]
+    
+    # Plot each parameter
+    for idx, key in enumerate(param_keys):
+        values = [p[key] for p in params if key in p]
+        axes[idx].hist(values, bins=20, edgecolor='black')
+        axes[idx].set_title(key)
+        axes[idx].set_ylabel('Count')
+    
+    # Hide unused subplots
+    for idx in range(n_params, len(axes)):
+        axes[idx].axis('off')
+    
+    plt.tight_layout()
+    return fig
