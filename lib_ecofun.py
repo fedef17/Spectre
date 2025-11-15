@@ -40,6 +40,19 @@ Eg_ratio = np.array(cose).astype(float)/100.
 
 Eg_ratio = xr.DataArray(Eg_ratio, dims = ["year"], coords = {"year": np.arange(1965, 2024)})
 
+##################################################################################################
+### Data from IEA Key World Energy Statistics 2021 (https://www.iea.org/data-and-statistics/charts/world-total-final-consumption-by-source-1971-2019)
+
+coal=np.array([227,231,235,258,299,345,364,383,402,414,443,464,469,466,470,461,437,421,404,398])
+oil=np.array([1305,1318,1339,1363,1425,1442,1467,1492,1474,1447,1506,1498,1512,1537,1562,1603,1626,1666,1683,1690])
+gas=np.array([469,463,469,485,494,500,508,525,539,516,563,573,572,594,595,595,611,633,671,684])
+biofuels=np.array([367,362,365,372,377,383,392,396,400,400,405,404,408,416,417,419,418,424,428,434])
+electricity=np.array([457,464,408,499,522,545,569,597,607,603,644,664,682,703,721,729,751,775,809,823])
+other=np.array([108,110,109,113,114,114,118,118,116,115,124,130,134,132,131,131,138,142,150,151])
+
+final_energy = coal + oil + gas + biofuels + electricity + other
+final_energy = xr.DataArray(final_energy, dims = ["year"], coords = {"year": np.arange(2000, 2020)})
+
 ##### Data from: https://www.statista.com/statistics/1325507/oil-and-gas-industry-profits-worldwide/
 
 fossil_profits = np.array([0.11, 0.14, 0.22, 0.91, 0.8 , 0.9 , 0.93, 0.88, 1.66, 1.84, 1.27, 

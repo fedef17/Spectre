@@ -11,6 +11,7 @@ from importlib import reload
 reload(lef)
 from scipy.optimize import curve_fit, minimize, dual_annealing, basinhopping, brute, differential_evolution, shgo, direct
 
+import pickle
 # %%
 lef.beta_fun(0, 1, delta_sig= 0.5)
 
@@ -104,18 +105,33 @@ result_dict = {}
 
 
 # %%
+threshold = 0.05
 
+model_args = (parnames, params, year_ini, inicond, verbose, obs, public_investment, mu_scen, obs_weights)
 
-result = dual_annealing(lef.cost_function, bounds, args = (parnames, params, year_ini, inicond, verbose, obs, public_investment, mu_scen, obs_weights))
-print(f'AAAAAAAAAAAAAAA dual: {result.fun:5.2f}  ', result.x)
+# Collect all evaluations below threshold
+below_threshold = []
 
+def callback_wrapper(xk, threshold, args = model_args):
+    cost = lef.cost_function(xk, *args)
+    if cost < threshold:
+        below_threshold.append((xk.copy(), cost))
+    return False
 
-result = differential_evolution(lef.cost_function, bounds, args = (parnames, params, year_ini, inicond, verbose, obs, public_investment, mu_scen, obs_weights))
+# run diffevo with callback
+result = differential_evolution(lef.cost_function, bounds, args = model_args, init = 'sobol', maxiter = 1000000, popsize = 1000, polish = False, callback = callback_wrapper)
 print(f'AAAAAAAAAAAAAAA diffevo: {result.fun:5.2f}  ', result.x)
 
-result = basinhopping(lef.cost_function, x0= initial_guess, minimizer_kwargs = {'args': (parnames, params, year_ini, inicond, verbose, obs, public_investment, mu_scen, obs_weights, param_bounds)}, niter = 1000)
-print(f'AAAAAAAAAAAAAAA hopping: {result.fun:5.2f}  ', result.x)
-# result_dict['hop'] = result
+
+with open('popoulation_IgEgE_thres05.p', 'wb') as fi:
+    pickle.dump(below_threshold, fi)
+
+# result = dual_annealing(lef.cost_function, bounds, args = (parnames, params, year_ini, inicond, verbose, obs, public_investment, mu_scen, obs_weights))
+# print(f'AAAAAAAAAAAAAAA dual: {result.fun:5.2f}  ', result.x)
+
+# result = basinhopping(lef.cost_function, x0= initial_guess, minimizer_kwargs = {'args': (parnames, params, year_ini, inicond, verbose, obs, public_investment, mu_scen, obs_weights, param_bounds)}, niter = 1000)
+# print(f'AAAAAAAAAAAAAAA hopping: {result.fun:5.2f}  ', result.x)
+# # result_dict['hop'] = result
 
 
 # # %%
