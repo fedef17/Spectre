@@ -28,11 +28,11 @@ inicond['Kf_ini'] = inicond['Kf_ini']*lef.fossil_capacity_util/fcu
 
 obs = dict()
 obs['Ig_ratio'] = lef.Ig_obs/(lef.Ig_obs+lef.If_obs) # considering only investment in power generation capacity (no grids, storage, EVs, ...)
-obs['Eg_ratio'] = lef.Eg_ratio
+obs['Eg_ratio_fe'] = lef.Eg_ratio_fe
 
 E_obs = xr.load_dataarray('Etot_hist_1965-2022.nc')
 E_obs /= E_obs.sel(year = 2000)
-obs['E'] = E_obs
+obs['E'] = lef.final_energy
 
 # %% [markdown]
 # ### Chose params to fit and bounds (initial guess only needed for minimize)

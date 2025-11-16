@@ -36,11 +36,16 @@ If_obs = xr.DataArray(If_obs, dims = ["year"], coords = {"year": np.arange(2015,
 cose = '6.445519 6.516204 6.423987 6.3901453 6.32996 6.2402315 6.2751184 6.231038 5.98148 6.527657 6.5613737 6.2220235 6.216026 6.4746337 6.5883255 6.8036585 6.9859357 7.1871624 7.3960943 7.3479614 7.309479 7.2850266 7.1429477 7.10847 6.9876184 7.182692 7.301195 7.2864876 7.6539183 7.6321683 7.8718243 7.755703 7.847491 7.890869 7.8530593 7.8158455 7.552836 7.5668545 7.3342075 7.518 7.5638204 7.705343 7.7473364 8.245706 8.564856 8.797048 8.980997 9.414955 9.847355 10.218171 10.504495 10.980251 11.337292 11.743186 12.228147 13.404395 13.469198 14.119935 14.562141'.split()
 
 Eg_ratio = np.array(cose).astype(float)/100.
-# Eg_ratio.sel(year = slice(2015, 2024)).values = Eg_ratio[-9:]
+# Eg_ratio_fe.sel(year = slice(2015, 2024)).values = Eg_ratio_fe[-9:]
 
 Eg_ratio = xr.DataArray(Eg_ratio, dims = ["year"], coords = {"year": np.arange(1965, 2024)})
 
-##################################################################################################
+values = [16.87, 16.58, 16.56, 16.39, 16.09, 15.98, 16.01, 15.84, 15.98, 
+          16.38, 16.04, 16.01, 16.27, 16.52, 16.66, 16.7, 16.91, 17.1, 
+          17.31, 17.69, 19.05, 18.71]
+
+Eg_ratio_fe = xr.DataArray(np.array(values)/100, dims = ["year"], coords = {"year": np.arange(2000, 2022)})
+
 ### Data from IEA Key World Energy Statistics 2021 (https://www.iea.org/data-and-statistics/charts/world-total-final-consumption-by-source-1971-2019)
 
 coal=np.array([227,231,235,258,299,345,364,383,402,414,443,464,469,466,470,461,437,421,404,398])
@@ -194,11 +199,11 @@ default_params['r_inv_state'] = 0.01
 default_inicond = {'Y_ini' : 1, 'Kg_ini' : 0.1, 'Kf_ini' : 0.9}
 
 fossil_capacity_util = 0.5 # E/E_max at start; for oil is 0.8 (data from energy institute), but unknown for coal and gas, so likely smaller than 0.8
-inicond_2015 = {'Y_ini' : 1, 'Kg_ini' : Eg_ratio.sel(year = 2015).values, 'Kf_ini' : (1-Eg_ratio.sel(year = 2015).values)/fossil_capacity_util} # from 2015
-inicond_2000 = {'Y_ini' : 1, 'Kg_ini' : Eg_ratio.sel(year = 2000).values, 'Kf_ini' : (1-Eg_ratio.sel(year = 2000).values)/fossil_capacity_util} # Allowing more fossil capacity at start to avoid scarcity
+inicond_2015 = {'Y_ini' : 1, 'Kg_ini' : Eg_ratio_fe.sel(year = 2015).values, 'Kf_ini' : (1-Eg_ratio_fe.sel(year = 2015).values)/fossil_capacity_util} # from 2015
+inicond_2000 = {'Y_ini' : 1, 'Kg_ini' :Eg_ratio_fe.sel(year = 2000).values, 'Kf_ini' : (1-Eg_ratio_fe.sel(year = 2000).values)/fossil_capacity_util} # Allowing more fossil capacity at start to avoid scarcity
 
 def inicond_yr(year):
-    inicond = {'Y_ini' : 1, 'Kg_ini' : Eg_ratio.sel(year = year).values, 'Kf_ini' : (1-Eg_ratio.sel(year = year).values)/fossil_capacity_util}
+    inicond = {'Y_ini' : 1, 'Kg_ini' : Eg_ratio_fe.sel(year = year).values, 'Kf_ini' : (1-Eg_ratio_fe.sel(year = year).values)/fossil_capacity_util}
     return inicond
 
 ### Best fit in fit_linearY.ipynb
@@ -840,7 +845,7 @@ def rebuild_resu(resu, run_backwards = False):
     ok_resu['Pg'] = Pg
     ok_resu['Pf'] = Pf
     ok_resu['Ig_ratio'] = Ig/(Ig+If)
-    ok_resu['Eg_ratio'] = Eg/E
+    ok_resu['Eg_ratio_fe'] = Eg/E
     ok_resu['Cg'] = Cg
     ok_resu['Cf'] = Cf
 
@@ -861,7 +866,7 @@ def build_resu_ds(resu, year_ini):
 
 def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'], params = default_params.copy(), year_ini = 2015, inicond = inicond_2015, verbose = False, obs = None, public_investment = False, mu_state_scenario = None, linear_gdp = None, obs_weights = None, param_bounds = None, break_on_scarcity = False, cost_low = 0.05):
     """
-    Fit model to (year_ini - 2025) obs.
+    Fit model to (year_ini - 2025) obs.obs
     """
 
     large = 100.
@@ -892,7 +897,9 @@ def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'
 
     # for parval, pnam in zip(ok_parset, ok_names):
     #         params[pnam] = parval
-    
+    inicond['Kf_ini']=1./params['b']*inicond['Kf_ini']
+    inicond['Kg_ini']= 1./params['a']*inicond['Kg_ini']
+
     params['gamma_f'] = params['gamma_g']
 
     # if param_bounds is not None:
@@ -1015,7 +1022,7 @@ def plot_sens_param(vals, nominal, all_resu, plot_type = 'tuning'):
         fig2 = plt.figure()
         resu = nominal
         plt.plot((resu['Eg']/resu['E'])[:20], label = 'model', color = 'black')
-        plt.plot(Eg_ratio.sel(year = slice(2015, 2024)).values, label = 'obs', color = 'orange')
+        plt.plot(Eg_ratio_fe.sel(year = slice(2015, 2024)).values, label = 'obs', color = 'orange')
         
         for resu, col in zip(all_resu, colors):
             plt.plot((resu['Eg']/resu['E'])[:20], color = col, ls = '--', lw = 1)
@@ -1099,7 +1106,7 @@ def costfun_1524(resu, year_ini = 2015, I_weight = 1., all_green = False):
     else:
         cost_I = 1.e4*np.sum((sim_pr - (Ig_obs/(Ig_obs+If_obs)))**2)
 
-    cost_Eg = np.sum((sim_eg - Eg_ratio.sel(year = slice(2015, 2024)).values)**2)
+    cost_Eg = np.sum((sim_eg - Eg_ratio_fe.sel(year = slice(2015, 2024)).values)**2)
 
     return I_weight * cost_I + cost_Eg
 
@@ -1127,7 +1134,7 @@ def costfun_hist(resu, year_ini = 2000, I_weight = 1., all_green = False):
 
     ind_ini = 1965 - year_ini
     if ind_ini < 0: ind_ini = 0
-    ind_fin = ind_ini + len(Eg_ratio)
+    ind_fin = ind_ini + len(Eg_ratio_fe)
     if ind_fin > len(resu['Eg']): ind_fin = len(resu['Eg'])-1
 
     #print(ind_ini, ind_fin, len(Ig))
@@ -1137,7 +1144,7 @@ def costfun_hist(resu, year_ini = 2000, I_weight = 1., all_green = False):
 
     #print(ind_obs_ini, ind_obs_fin, len(Ig))
 
-    cost_Eg = np.sum(((resu['Eg']/resu['E'])[ind_ini:ind_fin] - Eg_ratio[ind_obs_ini:ind_obs_fin])**2)
+    cost_Eg = np.sum(((resu['Eg']/resu['E'])[ind_ini:ind_fin] - Eg_ratio_fe[ind_obs_ini:ind_obs_fin])**2)
 
     return I_weight * cost_I + cost_Eg
 
@@ -1224,11 +1231,11 @@ def plot_resuvsobs(resu, year_ini = 2000, year_fin = 2100, maxlen = None, all_gr
     plt.legend()
 
     fig2 = plt.figure()
-    resu['Eg_ratio'] = resu['Eg']/resu['E']
-    Eg_ratio.sel(year = slice(year_ini, year_fin)).plot(label = obs_name, color = obs_col)
-    resu['Eg_ratio'].plot(label = mod_name, color = mod_col)
+    resu['Eg_ratio_fe'] = resu['Eg']/resu['E']
+    Eg_ratio_fe.sel(year = slice(year_ini, year_fin)).plot(label = obs_name, color = obs_col)
+    resu['Eg_ratio_fe'].plot(label = mod_name, color = mod_col)
     # plt.plot(np.arange(year_ini, year_ini + totle), (resu['Eg']/resu['E'])[:totle], label = mod_name, color = mod_col)
-    # plt.plot(np.arange(year_ini, 2024), Eg_ratio[-(2024-year_ini):], label = obs_name, color = obs_col)
+    # plt.plot(np.arange(year_ini, 2024), Eg_ratio_fe[-(2024-year_ini):], label = obs_name, color = obs_col)
 
     plt.xlabel('year')
     plt.ylabel('Share of renewable energy')
@@ -1259,7 +1266,7 @@ def plot_hist(resu, year_ini = 1950, maxlen = 50):
 
     fig2 = plt.figure()
     plt.plot(np.arange(year_ini, year_ini + totle), (resu['Eg']/resu['E'])[:totle], label = 'model', color = 'black')
-    plt.plot(np.arange(1965, 2024), Eg_ratio, label = 'obs', color = 'orange')
+    plt.plot(np.arange(1965, 2024), Eg_ratio_fe, label = 'obs', color = 'orange')
 
     plt.xlabel('time')
     plt.ylabel('Share of renewable energy')
