@@ -57,7 +57,7 @@ other=np.array([108,110,109,113,114,114,118,118,116,115,124,130,134,132,131,131,
 
 final_energy = coal + oil + gas + biofuels + electricity + other
 final_energy = xr.DataArray(final_energy, dims = ["year"], coords = {"year": np.arange(2000, 2020)})
-final_energy = final_energy/final_energy.sel(year = 2000)
+#final_energy = final_energy/final_energy.sel(year = 2000)
 
 ##### Data from: https://www.statista.com/statistics/1325507/oil-and-gas-industry-profits-worldwide/
 
@@ -202,6 +202,9 @@ default_inicond = {'Y_ini' : 1, 'Kg_ini' : 0.1, 'Kf_ini' : 0.9}
 fossil_capacity_util = 0.5 # E/E_max at start; for oil is 0.8 (data from energy institute), but unknown for coal and gas, so likely smaller than 0.8
 inicond_2015 = {'Y_ini' : 1, 'Kg_ini' : Eg_ratio_fe.sel(year = 2015).values, 'Kf_ini' : (1-Eg_ratio_fe.sel(year = 2015).values)/fossil_capacity_util} # from 2015
 inicond_2000 = {'Y_ini' : 1, 'Kg_ini' :Eg_ratio_fe.sel(year = 2000).values, 'Kf_ini' : (1-Eg_ratio_fe.sel(year = 2000).values)/fossil_capacity_util} # Allowing more fossil capacity at start to avoid scarcity
+
+def final_energy_yr(year_ini):
+    return final_energy/final_energy.sel(year = year_ini)
 
 def inicond_yr(year):
     inicond = {'Y_ini' : 1, 'Eg_ini' : Eg_ratio_fe.sel(year = year).values, 'Ef_ini' : (1-Eg_ratio_fe.sel(year = year).values)}
@@ -906,7 +909,7 @@ def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'
     # for parval, pnam in zip(ok_parset, ok_names):
     #         params[pnam] = parval
     inicond = define_K_ini(inicond, params, fcu = 0.8)
-    params['gamma_f'] = params['gamma_g']
+    # params['gamma_f'] = params['gamma_g']
 
     # if param_bounds is not None:
     #     for par in pardict:
