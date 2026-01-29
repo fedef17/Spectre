@@ -5,6 +5,7 @@ from matplotlib import pyplot as plt
 import matplotlib.cm as cm
 import scipy
 import xarray as xr
+import pandas as pd
 import os
 import csv
 
@@ -19,44 +20,54 @@ datadir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../data/")
 # annual capital spending on new power plants, battery storage and grid assets, or
 # the replacement of old assets or refurbishments for life extensions.
 
-lista = '1074 1319 1132 1105 1129 1114 1137 1109 1225 1066 1259 839 1408 914 1617 1002 1740 1050'.split()
-Ig_obs_all = np.array(lista[0::2]).astype(float)
-If_obs = np.array(lista[1::2]).astype(float)
+# lista = '1074 1319 1132 1105 1129 1114 1137 1109 1225 1066 1259 839 1408 914 1617 1002 1740 1050'.split()
+# Ig_obs_all = np.array(lista[0::2]).astype(float)
+# If_obs = np.array(lista[1::2]).astype(float)
 
-# Data on green investment for energy production only (only "Renewable power" in clean energy spending) billion USD
-Ig_obs = np.array('331 340 351 377 451 494 517 596 659'.split()).astype(float)
+# # Data on green investment for energy production only (only "Renewable power" in clean energy spending) billion USD
+# Ig_obs = np.array('331 340 351 377 451 494 517 596 659'.split()).astype(float)
 
-Ig_obs = xr.DataArray(Ig_obs, dims = ["year"], coords = {"year": np.arange(2015, 2024)})
-Ig_obs_all = xr.DataArray(Ig_obs_all, dims = ["year"], coords = {"year": np.arange(2015, 2024)})
-If_obs = xr.DataArray(If_obs, dims = ["year"], coords = {"year": np.arange(2015, 2024)})
+# Ig_obs = xr.DataArray(Ig_obs, dims = ["year"], coords = {"year": np.arange(2015, 2024)})
+# Ig_obs_all = xr.DataArray(Ig_obs_all, dims = ["year"], coords = {"year": np.arange(2015, 2024)})
+# If_obs = xr.DataArray(If_obs, dims = ["year"], coords = {"year": np.arange(2015, 2024)})
+
+# Update from WEI 2025
+total_investment = xr.load_dataset(datadir + 'total_investment_WEI2025.nc')
+Ig_obs = total_investment.green
+If_obs = total_investment.fossil
+# To remove public from data: (see function read investment data)
+# Ig_obs = total_investment['green (corrected)']
+# If_obs = total_investment['fossil (corrected)']
+
+co2 = xr.load_dataset('co2_emiss_1750-2024.nc')['co2']
 
 #######################
 
-########## E_g/E, from 1965 to 2023 (source ourworldindata: https://ourworldindata.org/renewable-energy)
-cose = '6.445519 6.516204 6.423987 6.3901453 6.32996 6.2402315 6.2751184 6.231038 5.98148 6.527657 6.5613737 6.2220235 6.216026 6.4746337 6.5883255 6.8036585 6.9859357 7.1871624 7.3960943 7.3479614 7.309479 7.2850266 7.1429477 7.10847 6.9876184 7.182692 7.301195 7.2864876 7.6539183 7.6321683 7.8718243 7.755703 7.847491 7.890869 7.8530593 7.8158455 7.552836 7.5668545 7.3342075 7.518 7.5638204 7.705343 7.7473364 8.245706 8.564856 8.797048 8.980997 9.414955 9.847355 10.218171 10.504495 10.980251 11.337292 11.743186 12.228147 13.404395 13.469198 14.119935 14.562141'.split()
+########## E_g/E, from 1965 to 2024 (source ourworldindata: https://ourworldindata.org/renewable-energy)
+cose = [6.088109, 6.155143, 6.0675287, 6.03579, 5.978705, 5.8929, 5.9273896, 
+        5.8859487, 5.6497455, 6.168147, 6.201238, 5.8808265, 5.8756404, 
+        6.1209283, 6.2307334, 6.4362164, 6.6121817, 6.804729, 7.0058365, 
+        6.962811, 6.92851, 6.9085894, 6.774538, 6.7405643, 6.629637, 
+        6.795954, 6.917012, 6.902818, 7.2510247, 7.2316523, 7.4576488, 
+        7.3469806, 7.43751, 7.482252, 7.4507895, 7.4256287, 7.1826315, 
+        7.1862054, 6.975092, 7.1525755, 7.191536, 7.3385572, 7.383397, 
+        7.8546634, 8.16082, 8.369888, 8.548672, 8.962558, 9.367213, 
+        9.732479, 10.000407, 10.430926, 10.793239, 11.201657, 11.650606, 
+        12.780913, 12.861119, 13.503552, 13.942238, 14.822139]
 
 Eg_ratio = np.array(cose).astype(float)/100.
 # Eg_ratio_fe.sel(year = slice(2015, 2024)).values = Eg_ratio_fe[-9:]
 
-Eg_ratio = xr.DataArray(Eg_ratio, dims = ["year"], coords = {"year": np.arange(1965, 2024)})
+Eg_ratio = xr.DataArray(Eg_ratio, dims = ["year"], coords = {"year": np.arange(1965, 2025)})
 
-values = [16.87, 16.58, 16.56, 16.39, 16.09, 15.98, 16.01, 15.84, 15.98, 
-          16.38, 16.04, 16.01, 16.27, 16.52, 16.66, 16.7, 16.91, 17.1, 
-          17.31, 17.69, 19.05, 18.71]
+## in TWh from OWID
+primary_energy = xr.load_dataarray('Etot_hist_1965-2024.nc') # with substitution method
 
-Eg_ratio_fe = xr.DataArray(np.array(values)/100, dims = ["year"], coords = {"year": np.arange(2000, 2022)})
+primary_energy_decomp = xr.load_dataset(datadir + 'primary_energy_substituted_decomp.nc')
+## Assuming Etot as sum of green and fossil only
+Etot = primary_energy_decomp.green + primary_energy_decomp.fossil
 
-### Data from IEA Key World Energy Statistics 2021 (https://www.iea.org/data-and-statistics/charts/world-total-final-consumption-by-source-1971-2019)
-
-coal=np.array([227,231,235,258,299,345,364,383,402,414,443,464,469,466,470,461,437,421,404,398])
-oil=np.array([1305,1318,1339,1363,1425,1442,1467,1492,1474,1447,1506,1498,1512,1537,1562,1603,1626,1666,1683,1690])
-gas=np.array([469,463,469,485,494,500,508,525,539,516,563,573,572,594,595,595,611,633,671,684])
-biofuels=np.array([367,362,365,372,377,383,392,396,400,400,405,404,408,416,417,419,418,424,428,434])
-electricity=np.array([457,464,408,499,522,545,569,597,607,603,644,664,682,703,721,729,751,775,809,823])
-other=np.array([108,110,109,113,114,114,118,118,116,115,124,130,134,132,131,131,138,142,150,151])
-
-final_energy = coal + oil + gas + biofuels + electricity + other
-final_energy = xr.DataArray(final_energy, dims = ["year"], coords = {"year": np.arange(2000, 2020)})
+thermal_efficiency_factor = 0.4 # to convert green energy to real primary energy, multiply by thermal efficiency factor
 
 ##### Data from: https://www.statista.com/statistics/1325507/oil-and-gas-industry-profits-worldwide/
 
@@ -70,67 +81,212 @@ Pf_obs = xr.DataArray(fossil_profits, dims = ["year"], coords = {"year": np.aran
 
 ######################################################################
 
-# Public investment in renewables from IRENA https://www.irena.org/Publications/2024/Jul/Renewable-energy-statistics-2024 
-# yeas = [2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022]
-S_obs = [20024.60, 26487.46, 19466.29, 35188.13, 31186.49, 24778.59, 17403.46, 17447.64, 19630.40, 21676.69]
-S_obs = xr.DataArray(S_obs, dims = ["year"], coords = {"year": np.arange(2013, 2023)})/1e3 # now in billions USD
 
 #################################################################################################################
 #################################################################################################################
+default_inicond = {'Y_ini' : 1, 'Kg_ini' : 0.1, 'Kf_ini' : 0.9}
 
-def define_obs(dimensional = True):
-    raise ValueError('not implemented')
-    obs = dict()
-    obs['Ig_ratio'] = Ig_obs/(Ig_obs+If_obs) # considering only investment in power generation capacity (no grids, storage, EVs, ...)
-    obs['Eg_ratio'] = Eg_ratio_fe
+fossil_capacity_util = 0.8 # E/E_max at start; for oil is 0.8 (data from energy institute), but unknown for coal and gas, so likely smaller than 0.8
+inicond_2015 = {'Y_ini' : 1, 'Kg_ini' : Eg_ratio.sel(year = 2015).values, 'Kf_ini' : (1-Eg_ratio.sel(year = 2015).values)/fossil_capacity_util} # from 2015
+inicond_2000 = {'Y_ini' : 1, 'Kg_ini' :Eg_ratio.sel(year = 2000).values, 'Kf_ini' : (1-Eg_ratio.sel(year = 2000).values)/fossil_capacity_util} # Allowing more fossil capacity at start to avoid scarcity
 
-    if dimensional:
-        obs['E'] = final_energy
-        #obs['K'] AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
-        #obs['I'] va bene da world energy investment 2025
+
+def define_obs(obs_list = ['E', 'Eg_ratio', 'Ig_ratio'], adimensional = True, year_ref = 2000):
+    """
+    Defines the observations to fit upon.
+
+    year_ref is the year used to adimensionalize, if adimensional is set to True.
+    Usually, that's the initial year.
+    """
+    allobs = dict()
+
+    allobs['Ig'] = Ig_obs.copy()
+    allobs['If'] = If_obs.copy()
+    allobs['I'] = allobs['Ig'] + allobs['If']
+
+    allobs['Ig_ratio'] = Ig_obs/(Ig_obs+If_obs)
+    allobs['Eg_ratio'] = primary_energy_decomp.green/Etot
+    allobs['E'] = Etot.copy()
+    allobs['Eg'] = primary_energy_decomp.green.copy()
+    allobs['Ef'] = primary_energy_decomp.fossil.copy()
+
+    allobs['Y'] = gdp.copy()
+
+    if adimensional:
+        E0 = allobs['E'].sel(year = year_ref).copy()
+        Y0 = allobs['Y'].sel(year = year_ref).copy()
+        allobs['E'] = allobs['E']/E0
+        allobs['Eg'] = allobs['Eg']/E0
+        allobs['Ef'] = allobs['Ef']/E0
+        allobs['I'] = allobs['I']/Y0
+        allobs['Y'] = allobs['Y']/Y0
+        allobs['Ig'] = allobs['Ig']/Y0
+        allobs['If'] = allobs['If']/Y0
+
+    ## Revenues? Costs?
+
+    # Select only chosen obs
+    if obs_list is not None:
+        obs = dict()
+        for ob in allobs:
+            if ob in obs_list:
+                obs[ob] = allobs[ob]
+
+        return obs
     else:
-        #obs['E'] = final_energy/final_energy.sel(year = 2000)
-        pass
+        return allobs
 
-    return
+
+def inicond_yr(year, params, adimensional = True, fcu = fossil_capacity_util):
+    """
+    Defines the initial conditions based on the starting year. Note that Kg_ini and Kf_ini are defined on the basis of the parameter set, since we only have information on the initial energy (K is reconstructed accordingly using the values of a and b).
+    """
+    #obs = define_obs()
+    #     inicond = {'Y_ini' : 1, 'Eg_ini' : Eg_ratio.sel(year = year).values, 'Ef_ini' : (1-Eg_ratio.sel(year = year).values)}
+    # else:
+
+    #E0 = primary_energy.sel(year = year).data
+    E0 = (primary_energy_decomp.green.sel(year = year).copy() + primary_energy_decomp.fossil.sel(year = year).copy()).data
+    Y0 = gdp.sel(year = year).data
+
+    inicond = {'Y_ini': Y0.copy(), 'Eg_ini': primary_energy_decomp.green.sel(year = year).data, 'Ef_ini': primary_energy_decomp.fossil.sel(year = year).data, 'E_ini': E0.copy()}
+
+    Kf0 = define_K_from_E(inicond['Ef_ini'], params['b'], capacity_util = fcu)
+    Kg0 = define_K_from_E(inicond['Eg_ini'], params['a'], capacity_util = 1.)
+
+    inicond['Kf_ini'] = Kf0
+    inicond['Kg_ini'] = Kg0
+
+    if adimensional:
+        inicond['Y_ini'] = inicond['Y_ini']/Y0
+        inicond['E_ini'] = inicond['E_ini']/E0
+        inicond['Eg_ini'] = inicond['Eg_ini']/E0
+        inicond['Ef_ini'] = inicond['Ef_ini']/E0
+        # inicond['Kf_ini'] /= Y0
+        # inicond['Kg_ini'] /= Y0
+
+        inicond['Kf_ini'] = define_K_from_E(inicond['Ef_ini'], params['b'], capacity_util = fcu)
+        inicond['Kg_ini'] = define_K_from_E(inicond['Eg_ini'], params['a'], capacity_util = 1.)
+
+    return inicond
+
+
+def define_K_from_E(E, a, capacity_util = 1):
+    """
+    Assumptions:
+    - fossil infrastructure is used for a fraction fcu (at start)
+    - green infr. is all used
+    """
+    
+    return (E/a)/capacity_util
+
+
+def define_K_ini(inicond, params, fcu = fossil_capacity_util):
+    """
+    Assumptions:
+    - fossil infrastructure is used for a fraction fcu (at start)
+    - green infr. is all used
+    """
+    inicond['Kf_ini'] = (inicond['Ef_ini']/params['b'])/fcu
+    inicond['Kg_ini'] = inicond['Eg_ini']/params['a']
+
+    return inicond
 
 
 def test():
     print('Library loaded')
     return
 
-def load_obs():
-    E_obs = xr.load_dataarray('Etot_hist_1965-2022.nc')
-    E_obs /= E_obs.sel(year = 2000)
 
-    co2 = xr.load_dataset('co2_emiss_1750-2022.nc')['co2']
-
-    return E_obs, co2
-
-
-### the model
-
-def sigmoid(x, delta = 1):
-    return 1/(1+np.exp(-x/delta))
-
-
-def GDP(Y, growth = 0.01, invert_time = False, linear_gdp = None):
-    # print('AAAAAAAAAA', Y, linear_gdp)
-    if linear_gdp is None:
-        if not invert_time:
-            Y *= (1+growth)
-        else:
-            Y /= (1+growth)
-    else:
-        Y += linear_gdp
-
-    return Y
-
-def to_emissions(Ef):
+def read_energy_data(datadir = datadir, write_nc = False):
     """
-    Convert fossil energy to CO2 emissions
+    Data on substituted primary energy in TWh (from OWID).
+    Substituted means that renewable primary energy is divided by the thermal efficiency factor (0.4) to be comparable with primary energy from fossil fuels.
+
+    Data sources: Energy Institute - Statistical Review of World Energy (2025) Smil (2017) - with major processing by Our World in Data.
     """
-    return 38.*Ef/Ef.sel(year = 2023)
+
+    df = pd.read_csv(datadir + 'global-energy-substitution/global-energy-substitution.csv')
+    year = df.iloc[:, 2]
+    data = df.iloc[:, 3:]
+
+    # Clean column names
+    data.columns = [col.split(' (')[0] for col in data.columns]
+
+    # Convert to xarray dataset with year as coordinate
+    ds = data.set_index(year.rename('year')).to_xarray()
+
+    # Add total variable
+    ds['total'] = sum(ds[var] for var in ds.data_vars)
+    ds['fossil'] = sum(ds[var] for var in ['Gas', 'Oil', 'Coal'])
+    ds['green'] = sum(ds[var] for var in ['Solar', 'Wind', 'Hydropower', 'Other renewables'])
+
+    if write_nc:
+        ds.to_netcdf(datadir + 'primary_energy_substituted_decomp.nc')
+
+    return ds
+
+def read_investment_data(datadir = datadir, write_nc = False):
+    # Note: Clean energy includes: Clean Fuels, Direct Air Capture, Transitional fossil fuels, Nuclear, Renewable power, Battery storage, Electricity networks, Fossil fuels: with CCUS, Other clean power and End-use. Other end-use includes: Electrification, renewables for end-use, Hydrogen and industry CCUS. Bunker fuels are only accounted for at the World level.
+
+    # Read Excel file, skip first row
+    df = pd.read_excel(datadir + 'WorldEnergyInvestment2025_DataFile.xlsx', sheet_name='World', skiprows=1, header=None)
+
+    # Extract years from second row (index 0 after skiprows)
+    #years = np.array(df.iloc[0, 2:].values, dtype = int)
+    years = np.array(df.iloc[0, 2:].values).astype(int)
+
+    # Process data starting from third row
+    data_dict = {}
+
+    for idx in range(1, len(df)):
+        key = df.iloc[idx, 1]
+        if pd.isna(key) or 'Note:' in str(key):
+            continue
+        
+        # Determine indent level
+        indent = len(key) - len(key.lstrip())
+        key = key.strip()
+        
+        # Clean key: remove units, "of which:", "o/w"
+        #key = key.split('(')[0].strip()
+        key = key.replace('Billion USD (2024, MER)', '').replace('of which:', '').replace('o/w', '').strip()
+        if not key:
+            continue
+        
+        # Get data and create DataArray
+        values = np.array(df.iloc[idx, 2:].values).astype(float)
+        da = xr.DataArray(values, coords={'year': years}, dims=['year'], name = key)
+
+        data_dict[key] = da
+    
+    new_dict = {'total': data_dict['Total'], 'fossil': data_dict['Fossil fuels'] + data_dict['Coal (unabated)']+data_dict['Oil and natural gas (unabated)'], 'green': data_dict['Renewables'], 'networks+storage': data_dict['Electricity networks'] + data_dict['Battery storage'], 'end use': data_dict['End-use']}
+
+    total_investment = xr.Dataset(new_dict)
+
+    ##### Add data on public vs private from WEI2025 report.
+    # Read from Page 151 of WEI2025 (left plot)
+    comm = [2.1, 2, 2, 1.9, 1.9, 1.7, 1.8, 2, 2.25, 2.5, 2.6]
+    commercial = 1000*xr.DataArray(comm, coords={'year': years}, dims=['year'])
+
+    public = total_investment.total - commercial
+    total_investment['public'] = public
+    total_investment['commercial'] = commercial
+
+    ## Considering same page, central plot, in 2024
+    # about 30% of fossil investment comes from public
+    # about 15% of green investment from public
+    # This means that about 50% of the public investment goes to fossil. The other half, is split among energy and grids+end-use. how this is done is unknown.. assuming 25% each.
+    # Assuming fraction for 2024 is valid for all years.
+
+    total_investment['fossil (corrected)'] = (1-0.3)*total_investment['fossil']
+    total_investment['green (corrected)'] = (1-0.23)*total_investment['green']
+
+    if write_nc:
+        total_investment.to_netcdf(datadir + 'total_investment_WEI2025.nc')
+
+    return total_investment
+
 
 def get_wb_gdp_data(datadir = datadir): # 2024: 173 trillions USD (our world in data)
     with open(datadir + 'API_NY.GDP.MKTP.CD_DS2_en_csv_v2_6298258.csv', newline='') as csvfile:
@@ -153,11 +309,49 @@ def get_wb_gdp_data(datadir = datadir): # 2024: 173 trillions USD (our world in 
 
     return gdp
 
+gdp = get_wb_gdp_data()
+
+### Other data not used in current version
+def load_final_energy_data():
+    ### Data from IEA Key World Energy Statistics 2021 (https://www.iea.org/data-and-statistics/charts/world-total-final-consumption-by-source-1971-2019)
+    ## This is in ExaJoule = 1e18
+    # IEA (2021), World total final consumption by source, 1971-2019, IEA, Paris https://www.iea.org/data-and-statistics/charts/world-total-final-consumption-by-source-1971-2019, Licence: CC BY 4.0
+
+    # Data on final energy are not comparable with data on substituted primary energy...
+    # something is missing here (substituted primary energy is a simplification anyway, but suited to the low complexity of our model)
+    coal=np.array([227,231,235,258,299,345,364,383,402,414,443,464,469,466,470,461,437,421,404,398])
+    oil=np.array([1305,1318,1339,1363,1425,1442,1467,1492,1474,1447,1506,1498,1512,1537,1562,1603,1626,1666,1683,1690])
+    gas=np.array([469,463,469,485,494,500,508,525,539,516,563,573,572,594,595,595,611,633,671,684])
+    biofuels=np.array([367,362,365,372,377,383,392,396,400,400,405,404,408,416,417,419,418,424,428,434])
+    electricity=np.array([457,464,408,499,522,545,569,597,607,603,644,664,682,703,721,729,751,775,809,823])
+    other=np.array([108,110,109,113,114,114,118,118,116,115,124,130,134,132,131,131,138,142,150,151])
+
+    final_energy = coal + oil + gas + biofuels + electricity + other
+    final_energy = xr.DataArray(final_energy, dims = ["year"], coords = {"year": np.arange(2000, 2020)})
+
+    ## Converting to TWh
+    final_energy = final_energy*1e18/(1e12*60*60)
+
+    values = [16.87, 16.58, 16.56, 16.39, 16.09, 15.98, 16.01, 15.84, 15.98, 
+            16.38, 16.04, 16.01, 16.27, 16.52, 16.66, 16.7, 16.91, 17.1, 
+            17.31, 17.69, 19.05, 18.71]
+
+    Eg_ratio_fe = xr.DataArray(np.array(values)/100, dims = ["year"], coords = {"year": np.arange(2000, 2022)})
+
+    return final_energy, Eg_ratio_fe
+
+
 def get_IRENA_public_inv(filename = '../data/IRENA_Stats_extract_2024_H2.nc'):
     """
     Data on public investment from IRENA 2024
     """
     gigi = xr.load_dataset(filename)/1e3 # Now in billions USD
+
+    # Questo non tornano le unità!
+    # Public investment in renewables from IRENA https://www.irena.org/Publications/2024/Jul/Renewable-energy-statistics-2024 
+    # yeas = [2013, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022]
+    S_obs = [20024.60, 26487.46, 19466.29, 35188.13, 31186.49, 24778.59, 17403.46, 17447.64, 19630.40, 21676.69]
+    S_obs = xr.DataArray(S_obs, dims = ["year"], coords = {"year": np.arange(2013, 2023)})/1e3 # now in billions USD
 
     return gigi
 
@@ -179,7 +373,7 @@ def get_IISD_green_subs(filename = '../data/IISD_green_support.nc'):
 
     return gigi
 
-########################### parameters ###########################################################################
+#################################################### parameters ###########################################################################
 
 default_params = dict()
 default_params['growth'] = 0.01 # economic growth
@@ -212,20 +406,6 @@ default_params['r_inv_state'] = 0.01
 # default_params['delta_sig_state'] = 0.5
 
 ##########################################
-
-default_inicond = {'Y_ini' : 1, 'Kg_ini' : 0.1, 'Kf_ini' : 0.9}
-
-fossil_capacity_util = 0.5 # E/E_max at start; for oil is 0.8 (data from energy institute), but unknown for coal and gas, so likely smaller than 0.8
-inicond_2015 = {'Y_ini' : 1, 'Kg_ini' : Eg_ratio_fe.sel(year = 2015).values, 'Kf_ini' : (1-Eg_ratio_fe.sel(year = 2015).values)/fossil_capacity_util} # from 2015
-inicond_2000 = {'Y_ini' : 1, 'Kg_ini' :Eg_ratio_fe.sel(year = 2000).values, 'Kf_ini' : (1-Eg_ratio_fe.sel(year = 2000).values)/fossil_capacity_util} # Allowing more fossil capacity at start to avoid scarcity
-
-def final_energy_yr(year_ini):
-    return final_energy/final_energy.sel(year = year_ini)
-
-def inicond_yr(year):
-    inicond = {'Y_ini' : 1, 'Eg_ini' : Eg_ratio_fe.sel(year = year).values, 'Ef_ini' : (1-Eg_ratio_fe.sel(year = year).values)}
-    return inicond
-
 ### Best fit in fit_linearY.ipynb
 best_params = default_params.copy()
 
@@ -272,7 +452,79 @@ best_params_old_Iw1 = {'growth': 0.017055428532726295,
  'delta_f': 0.01,
  'f_heavy': 0.1}
 
+###################### Conversion between dimensional and adimensional parameters
+
+def estimate_a_from_investment(timedelta = 2):
+    """
+    This is to estimate a from investment data (WEI 2025) and energy trends.
+
+    Timedelta is the time for investments to be seen in energy production.
+
+    Assuming timedelta = 2: a = 2.5, b = 1.2
+    Assuming timedelta = 1: a = 2.3, b = 1.4
+    """
+
+    y0 = 2015
+    yf = 2024-timedelta
+
+    deltaKg = Ig_obs.sel(year = slice(y0, yf)).sum()
+    deltaEg = primary_energy_decomp.green.sel(year = yf + timedelta) - primary_energy_decomp.green.sel(year = y0 + timedelta)
+    a = deltaEg/deltaKg
+
+    deltaKf = If_obs.sel(year = slice(y0, yf)).sum()
+    deltaEf = (primary_energy_decomp.fossil.sel(year = yf + timedelta) - primary_energy_decomp.fossil.sel(year = y0 + timedelta))/fossil_capacity_util
+    b = deltaEf/deltaKf
+
+    return a.data, b.data
+
+
+def gamma_prime(year, gamma = 0.3):
+    """
+    To convert energy price to adimensional gamma. Assuming that useful energy is thermal_efficiency_factor * primary/substituted energy.
+    
+    gamma is in $/kWh, gamma' is adimensional
+    """
+    E0 = primary_energy.sel(year = year)*1e9*thermal_efficiency_factor
+    Y0 = gdp.sel(year = year)*1e9
+
+    return gamma*E0.data/Y0.data
+
+
+def a_prime(year, a = 1):
+    """
+    a is in kWh/$, or TWh/billion $. a' is adimensional
+    """
+    E0 = primary_energy.sel(year = year)
+    Y0 = gdp.sel(year = year)
+
+    return a*Y0.data/E0.data
+
 ########################### parameters ###########################################################################
+
+### the model
+
+def sigmoid(x, delta = 1):
+    return 1/(1+np.exp(-x/delta))
+
+
+def GDP(Y, growth = 0.01, invert_time = False, linear_gdp = None):
+    # print('AAAAAAAAAA', Y, linear_gdp)
+    if linear_gdp is None:
+        if not invert_time:
+            Y *= (1+growth)
+        else:
+            Y /= (1+growth)
+    else:
+        Y += linear_gdp
+
+    return Y
+
+def to_emissions(Ef):
+    """
+    Convert fossil energy to CO2 emissions
+    """
+    return 38.*Ef/Ef.sel(year = 2023)
+
 
 def plot_cdf_beta(beta_0, prof_ratio, delta_sig):
     x = np.linspace(-3, 3)
@@ -783,14 +1035,7 @@ def build_resu_ds(resu, year_ini):
     return ds
 
 
-def define_K_ini(inicond, params, fcu = fossil_capacity_util):
-    inicond['Kf_ini']=(1./params['b']*inicond['Ef_ini'])/fcu
-    inicond['Kg_ini']= 1./params['a']*inicond['Eg_ini']
-
-    return inicond
-
-
-def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'], params = default_params.copy(), year_ini = 2015, inicond = inicond_2015, verbose = False, obs = None, public_investment = False, mu_state_scenario = None, linear_gdp = None, obs_weights = None, param_bounds = None, break_on_scarcity = False, cost_low = 0.05):
+def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'], params = default_params.copy(), year_ini = 2015, inicond = inicond_2015, verbose = False, obs = None, obs_weights = None, public_investment = False, mu_state_scenario = None, same_costs = False, same_price = False, recalc_inicond = False, linear_gdp = None, param_bounds = None, break_on_scarcity = False, cost_low = 0.05):
     """
     Fit model to (year_ini - 2025) obs.obs
     """
@@ -823,8 +1068,18 @@ def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'
 
     # for parval, pnam in zip(ok_parset, ok_names):
     #         params[pnam] = parval
-    inicond = define_K_ini(inicond, params, fcu = 0.8)
-    # params['gamma_f'] = params['gamma_g']
+    #inicond = define_K_ini(inicond, params, fcu = 0.8)
+
+    if recalc_inicond:
+        inicond_ok = inicond_yr(year_ini, params, adimensional = True, fcu = fossil_capacity_util)
+    else:
+        inicond_ok = inicond
+    
+    if same_costs:
+        params['eta_f'] = params['eta_g']
+
+    if same_price:
+        params['gamma_f'] = params['gamma_g']
 
     # if param_bounds is not None:
     #     for par in pardict:
@@ -833,7 +1088,7 @@ def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'
     #                 print(f'Param {par} out of bounds')
     #                 return large
 
-    resu = run_model(inicond = inicond, params = params, n_iter = n_iter, year_ini = year_ini, verbose = verbose, rule = 'maxgreen', extend_constant = True, linear_gdp = linear_gdp, public_investment = public_investment, mu_state_scenario = mu_state_scenario)
+    resu = run_model(inicond = inicond_ok, params = params, n_iter = n_iter, year_ini = year_ini, verbose = verbose, rule = 'maxgreen', extend_constant = True, linear_gdp = linear_gdp, public_investment = public_investment, mu_state_scenario = mu_state_scenario)
 
     cost = costfun(resu, obs, weights = obs_weights)
 
