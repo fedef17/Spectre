@@ -905,15 +905,15 @@ def run_model(inicond = default_inicond, params = default_params, n_iter = 100, 
         if allow_param_scenario is not None:
             for par in allow_param_scenario:
                 if verbose: 
-                    print(f'using scenario for param {par}:')
-                    print(okpar[par])
+                    print(f'using scenario for param {par}')
+                    #print(okpar[par])
                 if isinstance(params_ok[par], xr.core.dataarray.DataArray):
                     ymax = params_ok[par].year.max().values
                     yok = min(year_ini + i, ymax)
-                    print(yok, ymax)
+                    #print(yok, ymax)
                     okpar[par] = params_ok[par].sel(year = yok).values
                 else:
-                    print('checkpar', i)
+                    #print('checkpar', i)
                     okpar[par] = params_ok[par][i]
 
         if public_investment:
@@ -1035,7 +1035,7 @@ def build_resu_ds(resu, year_ini):
     return ds
 
 
-def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'], params = default_params.copy(), year_ini = 2015, inicond = inicond_2015, verbose = False, obs = None, obs_weights = None, public_investment = False, mu_state_scenario = None, same_costs = False, same_price = False, recalc_inicond = False, linear_gdp = None, param_bounds = None, break_on_scarcity = False, cost_low = 0.05):
+def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'], params = default_params.copy(), year_ini = 2015, inicond = inicond_2015, verbose = False, obs = None, obs_weights = None, public_investment = False, mu_state_scenario = None, same_costs = False, scale_costs = False, same_price = False, recalc_inicond = False, linear_gdp = None, param_bounds = None, break_on_scarcity = False, cost_low = 0.5):
     """
     Fit model to (year_ini - 2025) obs.obs
     """
@@ -1049,8 +1049,9 @@ def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'
     years = np.arange(year_ini, 2025)
 
     pardict = {par: val for par, val in zip(parnames, parset)}
-    print('---------------------')
-    print(pardict)
+    if verbose:
+        print('---------------------')
+        print(pardict)
 
     for par in pardict:
         if 'intercept' in par:
@@ -1071,6 +1072,7 @@ def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'
     #inicond = define_K_ini(inicond, params, fcu = 0.8)
 
     if recalc_inicond:
+        print('Recalculating inicond based on new parameters...')
         inicond_ok = inicond_yr(year_ini, params, adimensional = True, fcu = fossil_capacity_util)
     else:
         inicond_ok = inicond
@@ -1088,7 +1090,7 @@ def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'
     #                 print(f'Param {par} out of bounds')
     #                 return large
 
-    resu = run_model(inicond = inicond_ok, params = params, n_iter = n_iter, year_ini = year_ini, verbose = verbose, rule = 'maxgreen', extend_constant = True, linear_gdp = linear_gdp, public_investment = public_investment, mu_state_scenario = mu_state_scenario)
+    resu = run_model(inicond = inicond_ok, params = params, n_iter = n_iter, year_ini = year_ini, verbose = verbose, rule = 'maxgreen', extend_constant = True, linear_gdp = linear_gdp, public_investment = public_investment, mu_state_scenario = mu_state_scenario, scale_costs = scale_costs)
 
     cost = costfun(resu, obs, weights = obs_weights)
 
