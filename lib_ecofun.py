@@ -311,6 +311,44 @@ def get_wb_gdp_data(datadir = datadir): # 2024: 173 trillions USD (our world in 
 
 gdp = get_wb_gdp_data()
 
+
+def read_gdp_owid(filepath = f"{datadir}/global-gdp-over-the-long-run.csv"):
+    """
+    Read historical gdp from OWID.
+    """
+
+    df = pd.read_csv(filepath, usecols=[2, 3])
+    df.columns = ["Year", "GDP"]
+    
+    ds = xr.DataArray(df['GDP'], coords={'year': df['Year']}, dims="year")
+
+    return ds/1e9
+
+
+
+def read_gdp_scenarios(filepath = f"{datadir}/global-gross-domestic-product.csv"):
+    """
+    Read gdp scenarios from OWID csv file (O'Neill scenarios).
+    """
+
+    df = pd.read_csv(filepath, usecols=[0, 1, 2])
+    df.columns = ["Entity", "Year", "GDP"]
+    
+    # Clean entity names
+    df["Entity"] = df["Entity"].str.replace(" - Baseline", "", regex=False)
+    
+    # Pivot to wide format
+    df_pivot = df.pivot(index="Year", columns="Entity", values="GDP")
+    
+    # Reindex to every year and interpolate
+    all_years = range(df_pivot.index.min(), df_pivot.index.max() + 1)
+    df_pivot = df_pivot.reindex(all_years).interpolate(method="index")
+    
+    ds = xr.Dataset({col: xr.DataArray(df_pivot[col], dims="year") for col in df_pivot.columns})
+
+    return ds/1e9
+
+
 ### Other data not used in current version
 def load_final_energy_data():
     ### Data from IEA Key World Energy Statistics 2021 (https://www.iea.org/data-and-statistics/charts/world-total-final-consumption-by-source-1971-2019)
@@ -507,15 +545,27 @@ def sigmoid(x, delta = 1):
     return 1/(1+np.exp(-x/delta))
 
 
-def GDP(Y, growth = 0.01, invert_time = False, linear_gdp = None):
-    # print('AAAAAAAAAA', Y, linear_gdp)
-    if linear_gdp is None:
+def GDP(Y, growth = 0.01, deltaY = 0, invert_time = False, gdp_type = 'exponential', gdp_scenario = None, year = None):
+    """
+    Function that determines Y(t+1) given Y(t).
+
+    gdp_type: exponential, linear or custom.
+    If custom, function "gdp_function" is used, which takes only year as argument.
+    """
+    # print('AAAAAAAAAA', Y, deltaY)
+    if gdp_type == 'exponential':
+        if growth is None: raise ValueError('growth not set for exponential Y')
         if not invert_time:
             Y *= (1+growth)
         else:
             Y /= (1+growth)
-    else:
-        Y += linear_gdp
+    elif gdp_type == 'linear':
+        if deltaY is None: raise ValueError('deltaY not set for linear Y')
+        Y += deltaY
+    elif gdp_type == 'custom':
+        if year is None: raise ValueError('year not set for custom Y')
+        if gdp_scenario is None: raise ValueError('gdp_scenario not set for custom Y')
+        Y = gdp_scenario.sel(year = year)
 
     return Y
 
@@ -570,7 +620,7 @@ def prof_ratio(Pg, Pf, Kg, Kf, small = 1e-5):
     #return (Pg/Kg - Pf/Kf)/((Pg+Pf)/(Kg+Kf))
 
 
-def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_type = 'cdf', verbose = False, raise_bnd_err = False, linear_gdp = None, mu_state = 0.5, scale_costs = False, public_inv = False):
+def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_type = 'cdf', verbose = False, raise_bnd_err = False, deltaY = None, mu_state = 0.5, scale_costs = False, public_inv = False, gdp_type = 'exponential', gdp_scenario = None, year_scenario = None):
     """
     Expansion with public investment. Public investment is directed as subsidies, which reduce firms' costs, hence increasing their profits.
     """
@@ -605,7 +655,8 @@ def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_
     if verbose: print('params: ', params)
 
     ## Total production? # opt 1: exogenous growing Y, tot energy proportional to Y
-    E = eps * Y
+    #E = eps * Y
+    E = 1 + eps * (Y - 1) # only for adimensional!!
 
     ### improve: energy demand is not all the same. energy for fossil-fuel cars, heavy industry, gas heating,... must be fossil. Electricity generation can easily be both. Converting fossil-locked energy demand to green energy demand requires converting the downstream infrastructure as well, which requires more investment (and more energy..). This could be represented through the "fossil_constraint" strategy.
 
@@ -667,7 +718,10 @@ def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_
     # Kf = If + Sf + Kf * (1-delta_f)
     Kg = Ig + Kg * (1-delta_g)
     Kf = If + Kf * (1-delta_f)
-    Y = GDP(Y, growth = growth, linear_gdp = linear_gdp)
+
+    # updating Y for next timestep
+    # Y = GDP(Y, growth = growth, deltaY = deltaY)
+    Y = GDP(Y, growth = growth, deltaY = deltaY, gdp_type = gdp_type, gdp_scenario = gdp_scenario, year = year_scenario)
 
     Kg, Kf, Eg, Ef, beta, E, Y = check_bounds(Kg, Kf, Eg, Ef, beta, E, Y, raise_err = raise_bnd_err)
 
@@ -873,7 +927,7 @@ def set_params(params, years, verbose = False):
     return okpar, allow_param_scenario
 
 
-def run_model(inicond = default_inicond, params = default_params, n_iter = 100, rule = 'maxgreen', betafun_type = 'cdf', verbose = True, run_backwards = False, raise_bnd_err = False, year_ini = None, extend_constant = False, linear_gdp = None, public_investment = False, mu_state_scenario = None, scale_costs = False):
+def run_model(inicond = default_inicond, params = default_params, n_iter = 100, rule = 'maxgreen', betafun_type = 'cdf', verbose = True, run_backwards = False, raise_bnd_err = False, year_ini = None, extend_constant = False, deltaY = None, public_investment = False, mu_state_scenario = None, scale_costs = False, gdp_type = 'exponential', gdp_scenario = None):
     """
 
     Runs the model. Returns list of lists of outputs: [Y, Kg, Kf, E, Eg, Ef]  (can be improved!)
@@ -921,9 +975,9 @@ def run_model(inicond = default_inicond, params = default_params, n_iter = 100, 
             yok = min(year_ini + i, ymax)
             mu_state = mu_state_scenario.sel(year = yok).values
             
-            Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, Cg, Cf, success = forward_step(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err= raise_bnd_err, linear_gdp = linear_gdp, mu_state = mu_state, public_inv = True, scale_costs = scale_costs)
+            Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, Cg, Cf, success = forward_step(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err= raise_bnd_err, deltaY = deltaY, mu_state = mu_state, public_inv = True, scale_costs = scale_costs, gdp_type = gdp_type, gdp_scenario = gdp_scenario, year_scenario = year_ini + i+1)
         else:
-            Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, Cg, Cf, success = forward_step(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err= raise_bnd_err, linear_gdp = linear_gdp, public_inv = False, scale_costs = scale_costs)
+            Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, Cg, Cf, success = forward_step(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err= raise_bnd_err, deltaY = deltaY, public_inv = False, scale_costs = scale_costs, gdp_type = gdp_type, gdp_scenario = gdp_scenario, year_scenario = year_ini + i+1)
 
         # if run_backwards: # removed compatibility
         #     Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, Cg, Cf, success = backward_step(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err=raise_bnd_err)
@@ -940,7 +994,7 @@ def run_model(inicond = default_inicond, params = default_params, n_iter = 100, 
     
     if extend_constant:
         if len(resu) < n_iter:
-            print(f'Too short! extending up to {year_ini + n_iter}')
+            if verbose: print(f'Too short! extending up to {year_ini + n_iter}')
             resu = np.stack(resu)
             last_row = resu[-1, :]        
             repeated = np.repeat(last_row[np.newaxis, :], n_iter - resu.shape[0], axis = 0)
@@ -1035,7 +1089,7 @@ def build_resu_ds(resu, year_ini):
     return ds
 
 
-def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'], params = default_params.copy(), year_ini = 2015, inicond = inicond_2015, verbose = False, obs = None, obs_weights = None, public_investment = False, mu_state_scenario = None, same_costs = False, scale_costs = False, same_price = False, recalc_inicond = False, linear_gdp = None, param_bounds = None, break_on_scarcity = False, cost_low = 0.5):
+def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'], params = default_params.copy(), year_ini = 2015, inicond = inicond_2015, verbose = False, obs = None, obs_weights = None, public_investment = False, mu_state_scenario = None, same_costs = False, scale_costs = False, same_price = False, recalc_inicond = False, deltaY = None, gdp_type = 'exponential', gdp_scenario = None, param_bounds = None, break_on_scarcity = False, cost_low = 0.5):
     """
     Fit model to (year_ini - 2025) obs.obs
     """
@@ -1043,7 +1097,7 @@ def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'
     large = 100.
 
     if verbose:
-        print(obs, linear_gdp, public_investment, mu_state_scenario)
+        print(obs, deltaY, public_investment, mu_state_scenario)
         
     n_iter = 2025 - year_ini
     years = np.arange(year_ini, 2025)
@@ -1072,7 +1126,7 @@ def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'
     #inicond = define_K_ini(inicond, params, fcu = 0.8)
 
     if recalc_inicond:
-        print('Recalculating inicond based on new parameters...')
+        #print('Recalculating inicond based on new parameters...')
         inicond_ok = inicond_yr(year_ini, params, adimensional = True, fcu = fossil_capacity_util)
     else:
         inicond_ok = inicond
@@ -1090,7 +1144,7 @@ def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'
     #                 print(f'Param {par} out of bounds')
     #                 return large
 
-    resu = run_model(inicond = inicond_ok, params = params, n_iter = n_iter, year_ini = year_ini, verbose = verbose, rule = 'maxgreen', extend_constant = True, linear_gdp = linear_gdp, public_investment = public_investment, mu_state_scenario = mu_state_scenario, scale_costs = scale_costs)
+    resu = run_model(inicond = inicond_ok, params = params, n_iter = n_iter, year_ini = year_ini, verbose = verbose, rule = 'maxgreen', extend_constant = True, deltaY = deltaY, public_investment = public_investment, mu_state_scenario = mu_state_scenario, scale_costs = scale_costs, gdp_type=gdp_type, gdp_scenario=gdp_scenario)
 
     cost = costfun(resu, obs, weights = obs_weights)
 
