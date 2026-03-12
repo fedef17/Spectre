@@ -716,11 +716,12 @@ def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_
 
     # Kg = Ig + Sg + Kg * (1-delta_g) # if S goes to infrastructure directly, it competes with private investment instead of favoring it
     # Kf = If + Sf + Kf * (1-delta_f)
+    
+    # updating Y and K for next timestep
+    
     Kg = Ig + Kg * (1-delta_g)
     Kf = If + Kf * (1-delta_f)
 
-    # updating Y for next timestep
-    # Y = GDP(Y, growth = growth, deltaY = deltaY)
     Y = GDP(Y, growth = growth, deltaY = deltaY, gdp_type = gdp_type, gdp_scenario = gdp_scenario, year = year_scenario)
 
     Kg, Kf, Eg, Ef, beta, E, Y = check_bounds(Kg, Kf, Eg, Ef, beta, E, Y, raise_err = raise_bnd_err)
@@ -956,6 +957,11 @@ def run_model(inicond = default_inicond, params = default_params, n_iter = 100, 
 
     resu = []
     for i in range(n_iter):
+        # Saving Y and K for output
+        Y_this = Y
+        Kg_this = Kg
+        Kf_this = Kf
+        
         if allow_param_scenario is not None:
             for par in allow_param_scenario:
                 if verbose: 
@@ -982,7 +988,7 @@ def run_model(inicond = default_inicond, params = default_params, n_iter = 100, 
         # if run_backwards: # removed compatibility
         #     Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, Cg, Cf, success = backward_step(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err=raise_bnd_err)
 
-        resu.append([Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, Cg, Cf])
+        resu.append([Y_this, Kg_this, Kf_this, E, Eg, Ef, Ig, If, Pg, Pf, Cg, Cf])
         if success == 0: 
             continue
         elif success == 1:
@@ -1089,7 +1095,7 @@ def build_resu_ds(resu, year_ini):
     return ds
 
 
-def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'], params = default_params.copy(), year_ini = 2015, inicond = inicond_2015, verbose = False, obs = None, obs_weights = None, public_investment = False, mu_state_scenario = None, same_costs = False, scale_costs = False, same_price = False, recalc_inicond = False, deltaY = None, gdp_type = 'exponential', gdp_scenario = None, param_bounds = None, break_on_scarcity = False, cost_low = 0.5):
+def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'], params = default_params.copy(), year_ini = 2015, inicond = inicond_2015, verbose = False, obs = None, obs_weights = None, public_investment = False, mu_state_scenario = None, same_costs = False, scale_costs = False, same_price = False, recalc_inicond = False, deltaY = None, gdp_type = 'exponential', gdp_scenario = None, same_delta = False, param_bounds = None, break_on_scarcity = False, cost_low = 0.5):
     """
     Fit model to (year_ini - 2025) obs.obs
     """
@@ -1136,6 +1142,9 @@ def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'
 
     if same_price:
         params['gamma_f'] = params['gamma_g']
+
+    if same_delta:
+        params['delta_f'] = params['delta_g']
 
     # if param_bounds is not None:
     #     for par in pardict:
