@@ -288,8 +288,9 @@ def read_investment_data(datadir = datadir, write_nc = False):
     return total_investment
 
 
-def get_wb_gdp_data(datadir = datadir): # 2024: 173 trillions USD (our world in data)
-    with open(datadir + 'API_NY.GDP.MKTP.CD_DS2_en_csv_v2_6298258.csv', newline='') as csvfile:
+def get_wb_gdp_data(datadir = datadir, finam = "API_NY.GDP.MKTP.CD_DS2_en_csv_v2_207086.csv", last_year = 2024):
+#finam = 'API_NY.GDP.MKTP.CD_DS2_en_csv_v2_6298258.csv', last_year = 2022): 
+    with open(datadir + finam, newline='') as csvfile:
         reader = csv.reader(csvfile)
 
         rows = []
@@ -302,10 +303,10 @@ def get_wb_gdp_data(datadir = datadir): # 2024: 173 trillions USD (our world in 
     ro_ok = np.where(np.array(country) == 'World')[0][0]
     row_wld = rows[ro_ok]
 
-    gdp = np.array(row_wld[4:-1], dtype = float)
-    years = np.arange(1960, 2023)
+    gdp = np.array(row_wld[4:], dtype = float)
+    years = np.arange(1960, last_year + 1)
 
-    gdp = xr.DataArray(gdp, dims = ["year"], coords = {"year": np.arange(1960, 2023)})/1e9 # now in billions USD
+    gdp = xr.DataArray(gdp, dims = ["year"], coords = {"year": years})/1e9 # now in billions USD
 
     return gdp
 
@@ -877,7 +878,13 @@ def backward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun
 
 
 def check_bounds(Kg, Kf, Eg, Ef, beta, E, Y, raise_err = False):
+    # try:
+    #     input_vec = np.array([Kg, Kf, Eg, Ef, beta, E, Y])
+    # except ValueError as err:
+    #     print(Kg, Kf, Eg, Ef, beta, E, Y)
+    #     raise ValueError(f'Problem in check bounds: {err}')
     input_vec = np.array([Kg, Kf, Eg, Ef, beta, E, Y])
+
     nams = np.array('Kg, Kf, Eg, Ef, beta, E, Y'.split())
     mins = np.array([0, 0, 0, 0, 0, 0, 0])
     maxs = np.array([Kg, Kf, E, E, 1., E, Y])
