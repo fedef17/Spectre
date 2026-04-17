@@ -9,7 +9,7 @@ import xarray as xr
 import lib_ecofun as lef
 from importlib import reload
 reload(lef)
-from scipy.optimize import curve_fit, minimize, dual_annealing, basinhopping, brute, differential_evolution, shgo, direct
+from scipy.optimize import curve_fit, minimize, dual_annealing, basinhopping, brute, differential_evolution, shgo#, direct
 
 import pickle
 # %%
@@ -23,25 +23,35 @@ lef.beta_fun(0, 1, delta_sig= 0.5)
 
 # %%
 fcu = 0.8
-inicond = lef.inicond_yr(2000)
-inicond['Kf_ini'] = inicond['Kf_ini']*lef.fossil_capacity_util/fcu
+year_ini = 2000
+inicond = lef.inicond_yr(year_ini)
+#inicond['Kf_ini'] = inicond['Kf_ini']*lef.fossil_capacity_util/fcu
 
 obs = dict()
 obs['Ig_ratio'] = lef.Ig_obs/(lef.Ig_obs+lef.If_obs) # considering only investment in power generation capacity (no grids, storage, EVs, ...)
-obs['Eg_ratio'] = lef.Eg_ratio
 
-E_obs = xr.load_dataarray('Etot_hist_1965-2022.nc')
-E_obs /= E_obs.sel(year = 2000)
-obs['E'] = E_obs
+# E_obs = xr.load_dataarray('Etot_hist_1965-2022.nc')
+# E_obs /= E_obs.sel(year = 2000)
+obs['E'] = lef.final_energy_yr(year_ini)
+
+# obs['Eg_ratio'] = (lef.Eg_ratio_fe * (obs['E']) - 0.15)/obs['E']
+obs['Eg_ratio'] = lef.Eg_ratio_fe
 
 # %% [markdown]
 # ### Chose params to fit and bounds (initial guess only needed for minimize)
 
 # %%
-parnames = ['growth', 'beta_0', 'r_inv', 'a', 'b', 'eta_g', 'eta_f']
-#bounds = [(0.02, 0.03), (-0.3, 0.3), (0.2, 0.6), (0.7, 1.3), (0.7, 1.3), (0.5, 0.9), (0.5, 0.9)]
-bounds = [(0.01, 0.03), (-0.5, 0.5), (0.2, 0.8), (0.5, 1.5), (0.5, 1.5), (0.2, 0.9), (0.2, 0.9)]
-#initial_guess = [0.2, 0, 0.5, 1., 1., 0.8, 0.8]
+# parnames = ['growth', 'beta_0', 'r_inv', 'a', 'b', 'eta_g', 'eta_f']
+# bounds = [(0.01, 0.03), (-0.5, 0.5), (0.2, 0.8), (0.5, 1.5), (0.1, 1.5), (0.2, 0.9), (0.2, 0.9)]
+
+# parnames = ['growth', 'beta_0', 'r_inv', 'gamma_g', 'gamma_f', 'eta_g', 'eta_f']
+# bounds = [(0.01, 0.03), (-0.5, 0.5), (0.2, 0.9), (0.5, 1.5), (0.1, 1.5), (0.2, 0.9), (0.2, 0.9)]
+
+# parnames = ['growth', 'beta_0', 'r_inv', 'a', 'b', 'gamma_g', 'eta_g', 'eta_f']
+# bounds = [(0.01, 0.03), (-0.5, 0.), (0.2, 0.9), (0.2, 1.), (0.2, 1.), (0.1, 3.), (0.2, 0.9), (0.2, 0.9)]
+parnames = ['growth', 'beta_0', 'r_inv', 'gamma_g', 'gamma_f', 'eta_g', 'eta_f']
+bounds = [(0.01, 0.03), (-0.5, 0.5), (0.2, 0.9), (0.1, 3.), (0.1, 3.), (0.2, 0.9), (0.2, 0.9)]
+
 initial_guess = [lef.best_params[par] for par in parnames]
 
 param_bounds = {par: boun for par, boun in zip(parnames, bounds)}
@@ -57,12 +67,15 @@ initial_guess
 # ### Set other options: use public inv? what share? what scenario?
 
 # %%
-year_ini = 2000
 
 params = lef.default_params.copy()
 print(params)
 print('-------------')
 params['delta_sig'] = 0.5
+params['a'] = 0.76
+params['b'] = 1.07
+# params['gamma_g'] = 1.
+# params['gamma_f'] = 1.
 # params['eta_g'] = 0.8
 # params['eta_f'] =
 #params['growth'] = 0.029 # fixing Growth!
@@ -72,10 +85,10 @@ verbose = False
 public_investment = False
 
 params['r_inv_state'] = 0.015
-arr = np.concatenate([np.linspace(0., 0.7, 20), np.linspace(0.7, 0.7, 80)])
+arr = np.concatenate([np.linspace(0., 0.7, 2020-year_ini), np.linspace(0.7, 0.7, 80)])
 mu_scen = xr.DataArray(arr, dims = ('year'), coords = {'year': np.arange(year_ini, 2100)})
 
-obs_weights = None
+obs_weights = {'Eg_ratio': 10, 'E': 1, 'Ig_ratio': 1}
 
 # %%
 params
@@ -107,7 +120,7 @@ result_dict = {}
 # %%
 threshold = 0.05
 
-model_args = (parnames, params, year_ini, inicond, verbose, obs, public_investment, mu_scen, obs_weights)
+model_args = (parnames, params, year_ini, inicond, verbose, obs, public_investment, mu_scen, None, obs_weights)
 
 # Collect all evaluations below threshold
 below_threshold = []
@@ -119,17 +132,18 @@ def callback_wrapper(xk, threshold, args = model_args):
     return False
 
 # run diffevo with callback
-result = differential_evolution(lef.cost_function, bounds, args = model_args, init = 'sobol', maxiter = 1000000, popsize = 1000, polish = False, callback = callback_wrapper)
+result = differential_evolution(lef.cost_function, bounds, args = model_args, maxiter = 10000, popsize = 100, callback = callback_wrapper)
 print(f'AAAAAAAAAAAAAAA diffevo: {result.fun:5.2f}  ', result.x)
 
 
-with open('popoulation_IgEgE_thres05.p', 'wb') as fi:
+with open('popoulation_IgEgE_thres05_finalenergy.p', 'wb') as fi:
     pickle.dump(below_threshold, fi)
 
-# result = dual_annealing(lef.cost_function, bounds, args = (parnames, params, year_ini, inicond, verbose, obs, public_investment, mu_scen, obs_weights))
+# result = dual_annealing(lef.cost_function, bounds, args = model_args)
 # print(f'AAAAAAAAAAAAAAA dual: {result.fun:5.2f}  ', result.x)
 
-# result = basinhopping(lef.cost_function, x0= initial_guess, minimizer_kwargs = {'args': (parnames, params, year_ini, inicond, verbose, obs, public_investment, mu_scen, obs_weights, param_bounds)}, niter = 1000)
+# model_args = (parnames, params, year_ini, inicond, verbose, obs, public_investment, mu_scen, None, obs_weights, param_bounds)
+# result = basinhopping(lef.cost_function, x0= initial_guess, minimizer_kwargs = {'args': model_args}, niter = 1000)
 # print(f'AAAAAAAAAAAAAAA hopping: {result.fun:5.2f}  ', result.x)
 # # result_dict['hop'] = result
 
