@@ -21,14 +21,17 @@ reload(lef)
 
 gdp2 = lef.read_gdp_owid()
 
-# tag = 'gdp_noinfl_1804/'
-# ok_gdp = gdp2.sel(year = slice(2000, None))
-# gdp_fit = ok_gdp # xr.DataArray(spezzata, coords={"year": ok_gdp.year}, dims="year")
+#tag = 'gdp_noinfl_1804/'
+#ok_gdp = gdp2.sel(year = slice(2000, None))
+#gdp_fit = ok_gdp # xr.DataArray(spezzata, coords={"year": ok_gdp.year}, dims="year")
 
 tag = 'gdp_current_1804/'
 ok_gdp = lef.gdp.sel(year = slice(2000, None))
 gdp_fit = ok_gdp # xr.DataArray(spezzata, coords={"year": ok_gdp.year}, dims="year")
 
+do_dualfit = False
+do_diffevofit = False
+###############################################################################################
 
 # %%
 cart_figs = tag
@@ -208,101 +211,144 @@ def redirect_output(filename):
         yield
     sys.stdout = original_stdout
 
-# Collect all evaluations below threshold
-threshold = 0.05
-inicond_recalc = inicond.copy()
-scen = all_scen[1] # SSP2
 
-# below_threshold = []
-# def callback_wrapper_dual(xk, cost, context, args = None, **kwargs):
-#     if cost < threshold:
-#         below_threshold.append((xk.copy(), cost))
-#     return False
+if do_dualfit:
+    # Collect all evaluations below threshold
+    threshold = 0.05
+    inicond_recalc = inicond.copy()
+    scen = all_scen[1] # SSP2
 
-print("Starting dual annealing...")
-with redirect_output(cart_figs + 'dual_output.log'):
-    resu = dual_annealing(lef.cost_function, bounds, args = (parnames, params_fit, year_ini, inicond_recalc, verbose, obs2, obs_weights2, public_investment, mu_scen, same_costs, scale_costs, same_price, recalc_inicond, None, 'custom', scen))#, callback = callback_wrapper_dual)
+    # below_threshold = []
+    # def callback_wrapper_dual(xk, cost, context, args = None, **kwargs):
+    #     if cost < threshold:
+    #         below_threshold.append((xk.copy(), cost))
+    #     return False
 
-print(f'AAAAAAAAAAAAAAA dual: {resu.fun:6.3f}  ', resu.x)
+    print("Starting dual annealing...")
+    with redirect_output(cart_figs + 'dual_output.log'):
+        resu = dual_annealing(lef.cost_function, bounds, args = (parnames, params_fit, year_ini, inicond_recalc, verbose, obs2, obs_weights2, public_investment, mu_scen, same_costs, scale_costs, same_price, recalc_inicond, None, 'custom', scen))#, callback = callback_wrapper_dual)
 
-for par, parval in zip(parnames, resu.x):
-    params_fit[par] = parval
-    
-if same_price: params_fit['gamma_f'] = params_fit['gamma_g']
-if same_costs: params_fit['eta_f'] = params_fit['eta_g']
+    print(f'AAAAAAAAAAAAAAA dual: {resu.fun:6.3f}  ', resu.x)
 
-inicond_recalc = lef.inicond_yr(year_ini, params_fit, adimensional = True, fcu = lef.fossil_capacity_util)
+    for par, parval in zip(parnames, resu.x):
+        params_fit[par] = parval
+        
+    if same_price: params_fit['gamma_f'] = params_fit['gamma_g']
+    if same_costs: params_fit['eta_f'] = params_fit['eta_g']
 
-with redirect_output(cart_figs + 'final_results_dual.log'):
-    print(f'Best cost: {resu.fun:6.3f}\n')
-    print('')
-    print('PARAMS:')
-    for par in params_fit:
-        print(par, params_fit[par])
-    
-    print('')
-    print('INICOND:')
-    for co in inicond_recalc:
-        print(co, inicond_recalc[co])
+    inicond_recalc = lef.inicond_yr(year_ini, params_fit, adimensional = True, fcu = lef.fossil_capacity_util)
 
-
+    with redirect_output(cart_figs + 'final_results_dual.log'):
+        print(f'Best cost: {resu.fun:6.3f}\n')
+        print('')
+        print('PARAMS:')
+        for par in params_fit:
+            print(par, params_fit[par])
+        
+        print('')
+        print('INICOND:')
+        for co in inicond_recalc:
+            print(co, inicond_recalc[co])
 
 # import pickle
 # with open(cart_figs + 'popoulation_dual_005.p', 'wb') as fi:
 #     pickle.dump(below_threshold, fi)
 
 ## Repeat with diffevo.
-params_fit2 = params_prime.copy()
-params_fit2['eta_g'] = 0.2
-params_fit2['eta_f'] = 0.2
-params_fit2['eps'] = 0.33
-scale_costs = True
-same_price = True
-recalc_inicond = True
+if do_diffevofit:
+    params_fit2 = params_prime.copy()
+    params_fit2['eta_g'] = 0.2
+    params_fit2['eta_f'] = 0.2
+    params_fit2['eps'] = 0.33
+    scale_costs = True
+    same_price = True
+    recalc_inicond = True
 
-inicond_recalc = inicond.copy()
-scen = all_scen[1] # SSP2
+    inicond_recalc = inicond.copy()
+    scen = all_scen[1] # SSP2
 
-# below_threshold = []
-# def callback_wrapper_diff(xk, args = None, **kwargs):
-#     cost = lef.cost_function(xk, *args)
-#     if cost < threshold:
-#         below_threshold.append((xk.copy(), cost))
-#     return False
-    
-model_args = (parnames, params_fit2, year_ini, inicond_recalc, verbose, obs2, obs_weights2, public_investment, mu_scen, same_costs, scale_costs, same_price, recalc_inicond, None, 'custom', scen)
+    # below_threshold = []
+    # def callback_wrapper_diff(xk, args = None, **kwargs):
+    #     cost = lef.cost_function(xk, *args)
+    #     if cost < threshold:
+    #         below_threshold.append((xk.copy(), cost))
+    #     return False
+        
+    model_args = (parnames, params_fit2, year_ini, inicond_recalc, verbose, obs2, obs_weights2, public_investment, mu_scen, same_costs, scale_costs, same_price, recalc_inicond, None, 'custom', scen)
 
-print("Starting differential evolution...")
-# run diffevo with callback
-with redirect_output(cart_figs + 'diffevo_output.log'):
-    resu = differential_evolution(lef.cost_function, bounds, args = model_args, maxiter = 10000, popsize = 100)#, callback = callback_wrapper_diff)
+    print("Starting differential evolution...")
+    # run diffevo with callback
+    with redirect_output(cart_figs + 'diffevo_output.log'):
+        resu = differential_evolution(lef.cost_function, bounds, args = model_args, maxiter = 10000, popsize = 100)#, callback = callback_wrapper_diff)
 
-print(f'AAAAAAAAAAAAAAA diffevo: {resu.fun:5.2f}  ', resu.x)
+    print(f'AAAAAAAAAAAAAAA diffevo: {resu.fun:5.2f}  ', resu.x)
 
-for par, parval in zip(parnames, resu.x):
-    params_fit2[par] = parval
-    
-if same_price: params_fit2['gamma_f'] = params_fit2['gamma_g']
-if same_costs: params_fit2['eta_f'] = params_fit2['eta_g']
+    for par, parval in zip(parnames, resu.x):
+        params_fit2[par] = parval
+        
+    if same_price: params_fit2['gamma_f'] = params_fit2['gamma_g']
+    if same_costs: params_fit2['eta_f'] = params_fit2['eta_g']
 
-inicond_recalc2 = lef.inicond_yr(year_ini, params_fit2, adimensional = True, fcu = lef.fossil_capacity_util)
+    inicond_recalc2 = lef.inicond_yr(year_ini, params_fit2, adimensional = True, fcu = lef.fossil_capacity_util)
 
-# with open(cart_figs + 'popoulation_diffevo_005.p', 'wb') as fi:
-#     pickle.dump(below_threshold, fi)
+    # with open(cart_figs + 'popoulation_diffevo_005.p', 'wb') as fi:
+    #     pickle.dump(below_threshold, fi)
 
-with redirect_output(cart_figs + 'final_results_diffevo.log'):
-    print(f'Best cost: {resu.fun:6.3f}\n')
-    print('')
-    print('PARAMS:')
-    for par in params_fit2:
-        print(par, params_fit2[par])
-    
-    print('')
-    print('INICOND:')
-    for co in inicond_recalc2:
-        print(co, inicond_recalc2[co])
+    with redirect_output(cart_figs + 'final_results_diffevo.log'):
+        print(f'Best cost: {resu.fun:6.3f}\n')
+        print('')
+        print('PARAMS:')
+        for par in params_fit2:
+            print(par, params_fit2[par])
+        
+        print('')
+        print('INICOND:')
+        for co in inicond_recalc2:
+            print(co, inicond_recalc2[co])
 
 ###############################################################################################################################
+###############################################################################################################################
+#### Read fit result
+
+def parse_parameter_file(filename):
+    params_fit = {}
+    inicond_recalc = {}
+    
+    with open(filename, 'r') as f:
+        lines = f.readlines()
+    
+    current_section = None
+    for line in lines:
+        line = line.strip()
+        
+        if line == 'PARAMS:':
+            current_section = 'params'
+        elif line == 'INICOND:':
+            current_section = 'inicond'
+        elif line and current_section:
+            # Parse key-value pairs (assuming space-separated)
+            parts = line.split()
+            if len(parts) >= 2:
+                key = parts[0]
+                try:
+                    value = float(parts[1]) if '.' in parts[1] else int(parts[1])
+                except ValueError:
+                    value = parts[1]  # Keep as string if not numeric
+                
+                if current_section == 'params':
+                    params_fit[key] = value
+                elif current_section == 'inicond':
+                    inicond_recalc[key] = value
+    
+    return params_fit, inicond_recalc
+
+if not do_dualfit:
+    print('Reading fit result...')
+    params_fit, inicond_recalc = parse_parameter_file(cart_figs + 'final_results_dual.log')
+    print("Params:", params_fit)
+    print("Inicond:", inicond_recalc)
+
+#########################################################################################################################
 
 # %%
 resu_allscen = []
@@ -673,7 +719,7 @@ df = pd.read_csv(input_file)
 # Step 2: Extract the central sensitivity setup (high, central, low)
 params = df[df.iloc[:, 0] == 'central']
 
-random_seeds = np.array([random.randint(1, 1e7) for i in range(n_ens)])
+random_seeds = np.array([random.randint(1, int(1e7)) for i in range(n_ens)])
 new_data = {col: [params[col].values[0]] * n_ens if col != 'seed' else random_seeds for col in df.columns}
 new_data['Unnamed: 0'] = ens_names # names
 ensemble = pd.DataFrame(new_data)
