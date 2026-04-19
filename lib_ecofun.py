@@ -1420,12 +1420,14 @@ def plot_resuvsobs_ds(resu, obs, year_ok = slice(2000, 2030), var_names = None, 
 
             for res, nam, col in zip(resu, run_names, colors):
                 if not greystyle:
-                    resupl = res[var].sel(year = year_ok).plot(label = nam)
+                    resupl = res[var].sel(year = year_ok).plot(label = nam, zorder = 0)
                 else:
                     if col is None: col = 'grey'
-                    resupl = res[var].sel(year = year_ok).plot(color = col, lw = 0.2)
+                    resupl = res[var].sel(year = year_ok).plot(color = col, lw = 0.1, zorder = 0)
 
-        obspl = obs[var].sel(year = year_ok).plot(label = 'obs', color = 'black')
+        obspl = obs[var].sel(year = year_ok).plot(label = 'obs', color = 'black', zorder = 0, lw = 0.5)
+        if greystyle:
+            obs[var].sel(year = year_ok).plot.scatter(color = 'black', s = 50, zorder = 2, alpha = 0.7)
 
         plt.xlabel('year')
         if var_names is not None:

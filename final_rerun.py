@@ -22,10 +22,12 @@ reload(lef)
 gdp2 = lef.read_gdp_owid()
 
 #tag = 'gdp_noinfl_1804/'
+#tag = 'gdp_noinfl_1804_ext/'
 #ok_gdp = gdp2.sel(year = slice(2000, None))
 #gdp_fit = ok_gdp # xr.DataArray(spezzata, coords={"year": ok_gdp.year}, dims="year")
 
-tag = 'gdp_current_1804/'
+# tag = 'gdp_current_1804/'
+tag = 'gdp_current_1804_ext/'
 ok_gdp = lef.gdp.sel(year = slice(2000, None))
 gdp_fit = ok_gdp # xr.DataArray(spezzata, coords={"year": ok_gdp.year}, dims="year")
 
@@ -883,9 +885,58 @@ def read_cost_params(filepath: str) -> tuple[list, list]:
             params.append(param_dict)
     return costs, params
 
+import re
+import ast
+import numpy as np
+
+def parse_cost_and_params_line(line):
+    # Extract the dictionary part
+    match = re.search(r'params:\s*(\{.*\})', line)
+    if not match:
+        return None, None
+    
+    # Extract cost
+    cost_match = re.search(r'Cost:\s*([\d.]+)', line)
+    cost = float(cost_match.group(1)) if cost_match else None
+    
+    # Get the dictionary string
+    dict_str = match.group(1)
+    
+    # Replace np.float64(...) with just the number
+    dict_str = re.sub(r'np\.float64\(([^)]+)\)', r'\1', dict_str)
+    
+    # Now safely evaluate
+    try:
+        params_dict = ast.literal_eval(dict_str)
+    except:
+        # If that fails, use eval with numpy in namespace
+        params_dict = eval(dict_str, {"np": np, "__builtins__": None})
+    
+    return cost, params_dict
+
+# Usage with file
+def parse_file_with_params(filename):
+    costs = []
+    param_sets = []
+    
+    with open(filename, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith('Cost:'):
+                cost, params = parse_cost_and_params_line(line)
+                if params:
+                    costs.append(cost)
+                    param_sets.append(params)
+    
+    return costs, param_sets
+
+# Example
+costs, param_sets = parse_file_with_params(cart_figs + 'dual_output.log')
+costs2, param_sets2 = parse_file_with_params(cart_figs + 'diffevo_output.log')
+
 # %%
-costs, param_sets = read_cost_params('dual_output.log')
-costs2, param_sets2 = read_cost_params('diffevo_output.log')
+# costs, param_sets = read_cost_params(cart_figs + 'dual_output.log')
+# costs2, param_sets2 = read_cost_params(cart_figs + 'diffevo_output.log')
 costs = costs + costs2
 param_sets = param_sets + param_sets2
 
@@ -934,12 +985,13 @@ for gro, col, lab, best, do in zip(np.arange(0., 0.055, 0.005), rainbow_palette_
     all_emiss = []
     for re in allresu:
         emiss = lef.to_emissions(re['Ef'])
-        emiss.plot(color = col, lw = 0.15)
+        emiss.plot(color = col, lw = 0.1, alpha = 0.3)
         all_emiss.append(emiss)
 
     #xr.concat(all_emiss, dim = 'member').mean('member').plot(color = col, lw = 2, label = lab)
     lef.to_emissions(best['Ef']).plot(color = col, lw = 2, label = lab, ls = '-')
-    lef.to_emissions(best['Ef']).sel(year = slice(2070, 2070)).plot.scatter(color = col, s = 50, marker = '*', alpha = 0.5)
+    if max(best['Ef'].year.values) >= 2070: 
+        lef.to_emissions(best['Ef']).sel(year = slice(2070, 2070)).plot.scatter(color = col, s = 50, marker = '*', alpha = 0.5)
     
     #emiss_scen[gro] = lef.to_emissions(re['Ef'])
 
@@ -974,10 +1026,11 @@ labels = [f"Y from SSP{ssp}" for ssp in range(1, 6)]
 for ssp, col, lab, best in zip([f'SSP{i}' for i in range(1,6)], rainbow_palette[::-1], labels, resu_allscen):
     allresu = resu_sens_ssp[ssp]
     for re in allresu:
-        lef.to_emissions(re['Ef']).plot(color = col, lw = 0.1)
+        lef.to_emissions(re['Ef']).plot(color = col, lw = 0.1, alpha = 0.3)
 
     lef.to_emissions(best['Ef']).plot(color = col, lw = 2, label = lab)
-    lef.to_emissions(best['Ef']).sel(year = slice(2070, 2070)).plot.scatter(color = col, s = 50, marker = '*', alpha = 0.5)
+    if max(best['Ef'].year.values) >= 2070: 
+        lef.to_emissions(best['Ef']).sel(year = slice(2070, 2070)).plot.scatter(color = col, s = 50, marker = '*', alpha = 0.5)
 
 # lef.to_emissions(resu_hist['Ef']).sel(year = slice(2000, 2023)).plot(color = 'grey')
 lef.co2.sel(year = slice(2000, None)).plot(color = 'black')
@@ -1003,11 +1056,11 @@ cols = list(cma(costmap))
 figs = lef.plot_resuvsobs_ds(resu_sens_gro[0.02], obs2, year_ok = slice(2000, 2024), greystyle=True, colors = cols)
 best_hist = resu_groscen[2].sel(year = slice(2000, 2024))
 ax = figs[0].gca()
-best_hist.Ig_ratio.plot(ax = ax, color = 'orange')
+best_hist.Ig_ratio.plot(ax = ax, color = 'orange', zorder = 1)
 ax = figs[1].gca()
-best_hist.Eg_ratio.plot(ax = ax, color = 'orange')
+best_hist.Eg_ratio.plot(ax = ax, color = 'orange', zorder = 1)
 ax = figs[2].gca()
-best_hist.E.plot(ax = ax, color = 'orange')
+best_hist.E.plot(ax = ax, color = 'orange', zorder = 1)
 
 figs[0].savefig(cart_figs + 'resu_hist_Ig_ratio_ens.pdf')
 figs[1].savefig(cart_figs + 'resu_hist_Eg_ratio_ens.pdf')
@@ -1020,7 +1073,7 @@ figs[2].savefig(cart_figs + 'resu_hist_E_ens.pdf')
 
 # %%
 fig = plt.figure()
-resu = resu_delta_m50[0].sel(year = slice(2000, 2025))
+resu = resu_groscen[4].sel(year = slice(2000, 2025))
 (resu.Cg/resu.Eg).plot(label = 'green')
 (resu.Cf/resu.Ef).plot(label = 'fossil')
 plt.legend()
