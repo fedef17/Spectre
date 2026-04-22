@@ -21,16 +21,17 @@ reload(lef)
 
 gdp2 = lef.read_gdp_owid()
 
-#tag = 'gdp_noinfl_1804/'
+#tag = 'gdp_noinfl_1804_ext/'
 #ok_gdp = gdp2.sel(year = slice(2000, None))
 #gdp_fit = ok_gdp # xr.DataArray(spezzata, coords={"year": ok_gdp.year}, dims="year")
 
-tag = 'gdp_current_1804/'
+#tag = 'gdp_current_1804_ext/'
+tag = 'gdp_current_1804_wI/'
 ok_gdp = lef.gdp.sel(year = slice(2000, None))
 gdp_fit = ok_gdp # xr.DataArray(spezzata, coords={"year": ok_gdp.year}, dims="year")
 
-do_dualfit = False
-do_diffevofit = False
+do_dualfit = True
+do_diffevofit = True
 ###############################################################################################
 
 # %%
@@ -102,8 +103,10 @@ params_prime['b'] = lef.a_prime(year_ini, a = params['b'])
 params_prime_range = {
  'growth': (0.01, 0.05),
  'delta_sig': (0.2, 1.),
- 'a': (0.6, 1.1),
- 'b': (0.3, 0.8),
+  'a': (0.6, 1.1),
+  'b': (0.3, 0.8),
+# 'a': (0.3, 1.1), # extended low
+# 'b': (0.3, 1.1), # extended high
  'gamma_f': (0.1, 0.7),
  'gamma_g': (0.1, 0.7),
  'eta_g': (0.1, 0.95),
@@ -177,8 +180,10 @@ plt.ylim(0, 0.4e6)
 
 fig.savefig(cart_figs + 'GDP_SSP_scaling_ok.pdf')
 
-obs2 = lef.define_obs(['E', 'Eg_ratio', 'Ig_ratio'], year_ref = year_ini)
-obs_weights2 = {'E': 1, 'Eg_ratio': 10, 'Ig_ratio': 1}
+#obs2 = lef.define_obs(['E', 'Eg_ratio', 'Ig_ratio'], year_ref = year_ini)
+#obs_weights2 = {'E': 1, 'Eg_ratio': 10, 'Ig_ratio': 1}
+obs2 = lef.define_obs(['E', 'Eg_ratio', 'Ig_ratio', 'I'], year_ref = year_ini)
+obs_weights2 = {'E': 1, 'Eg_ratio': 10, 'Ig_ratio': 1, 'I':1}
 
 # %%
 #parnames = ['growth', 'delta_sig', 'beta_0', 'r_inv', 'a', 'b', 'gamma_g']#, 'eta_g', 'gamma_g']

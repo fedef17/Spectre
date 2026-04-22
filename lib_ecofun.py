@@ -1080,6 +1080,7 @@ def rebuild_resu(resu, run_backwards = False):
     ok_resu['Ef'] = Ef
     ok_resu['Ig'] = Ig
     ok_resu['If'] = If
+    ok_resu['I'] = If+Ig
     ok_resu['Pg'] = Pg
     ok_resu['Pf'] = Pf
     ok_resu['Ig_ratio'] = Ig/(Ig+If)
