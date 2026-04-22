@@ -1080,7 +1080,7 @@ def rebuild_resu(resu, run_backwards = False):
     ok_resu['Ef'] = Ef
     ok_resu['Ig'] = Ig
     ok_resu['If'] = If
-    ok_resu['I'] = If+Ig
+    ok_resu['I'] = If + Ig
     ok_resu['Pg'] = Pg
     ok_resu['Pf'] = Pf
     ok_resu['Ig_ratio'] = Ig/(Ig+If)
@@ -1401,7 +1401,7 @@ def costfun_hist(resu, year_ini = 2000, I_weight = 1., all_green = False):
     return I_weight * cost_I + cost_Eg
 
 
-def plot_resuvsobs_ds(resu, obs, year_ok = slice(2000, 2030), var_names = None, run_names = [], greystyle = False, colors = []):
+def plot_resuvsobs_ds(resu, obs, year_ok = slice(2000, 2030), var_names = None, run_names = [], greystyle = False, colors = [], alphas = [], lw = 0.2):
     """
     Generic plot function for whatever is inside obs. Resu is a dataset and obs is a dict of dataarrays with 'year' axis.
     """
@@ -1416,17 +1416,18 @@ def plot_resuvsobs_ds(resu, obs, year_ok = slice(2000, 2030), var_names = None, 
             if run_names == []:
                 run_names = [f'run {i}' for i in range(len(resu))]
 
-            if colors == []:
-                colors = [None]*len(resu)
+            if colors == []: colors = ['grey']*len(resu)
+            if alphas == []: alphas = [1]*len(resu)
 
-            for res, nam, col in zip(resu, run_names, colors):
+            for res, nam, col, alp in zip(resu, run_names, colors, alphas):
                 if not greystyle:
-                    resupl = res[var].sel(year = year_ok).plot(label = nam)
+                    resupl = res[var].sel(year = year_ok).plot(label = nam, zorder = 0)
                 else:
-                    if col is None: col = 'grey'
-                    resupl = res[var].sel(year = year_ok).plot(color = col, lw = 0.2)
+                    resupl = res[var].sel(year = year_ok).plot(color = col, lw = lw, zorder = 0, alpha = alp)
 
-        obspl = obs[var].sel(year = year_ok).plot(label = 'obs', color = 'black')
+        obspl = obs[var].sel(year = year_ok).plot(label = 'obs', color = 'black', zorder = 0, lw = 0.5)
+        if greystyle:
+            obs[var].sel(year = year_ok).plot.scatter(color = 'black', s = 50, zorder = 2, alpha = 0.7)
 
         plt.xlabel('year')
         if var_names is not None:
