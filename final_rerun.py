@@ -16,27 +16,34 @@ from scipy.optimize import curve_fit, minimize, dual_annealing, basinhopping, br
 from importlib import reload
 import os
 import sys
+import pickle
 
 reload(lef)
 
 gdp2 = lef.read_gdp_owid()
 
-#tag = 'gdp_noinfl_1804/'
-#tag = 'gdp_noinfl_1804_ext/'
+#tag = 'gdp_noinfl_1804'
+#tag = 'gdp_noinfl_1804_ext'
 #ok_gdp = gdp2.sel(year = slice(2000, None))
 #gdp_fit = ok_gdp # xr.DataArray(spezzata, coords={"year": ok_gdp.year}, dims="year")
 
-# tag = 'gdp_current_1804/'
-tag = 'gdp_current_1804_ext/'
+# tag = 'gdp_current_1804'
+# cost_fact = 1.5
+tag = 'gdp_current_1804_wI'
+cost_fact = 1.5
+# tag = 'gdp_current_1804_cost30'
+# cost_fact = 1.3
+# tag = 'gdp_current_1804_ext'
 ok_gdp = lef.gdp.sel(year = slice(2000, None))
 gdp_fit = ok_gdp # xr.DataArray(spezzata, coords={"year": ok_gdp.year}, dims="year")
 
 do_dualfit = False
 do_diffevofit = False
+compute = True # runs the model on the best fits for plotting. !!! FALSE DOES NOT WORK -> random pick with no seed
 ###############################################################################################
 
 # %%
-cart_figs = tag
+cart_figs = tag + '/'
 if not os.path.exists(cart_figs): os.mkdir(cart_figs)
 
 # %%
@@ -179,8 +186,10 @@ plt.ylim(0, 0.4e6)
 
 fig.savefig(cart_figs + 'GDP_SSP_scaling_ok.pdf')
 
-obs2 = lef.define_obs(['E', 'Eg_ratio', 'Ig_ratio'], year_ref = year_ini)
-obs_weights2 = {'E': 1, 'Eg_ratio': 10, 'Ig_ratio': 1}
+# obs2 = lef.define_obs(['E', 'Eg_ratio', 'Ig_ratio'], year_ref = year_ini)
+# obs_weights2 = {'E': 1, 'Eg_ratio': 10, 'Ig_ratio': 1}
+obs2 = lef.define_obs(['E', 'Eg_ratio', 'Ig_ratio', 'I'], year_ref = year_ini)
+obs_weights2 = {'E': 1, 'Eg_ratio': 10, 'Ig_ratio': 1, 'I': 1}
 
 # %%
 #parnames = ['growth', 'delta_sig', 'beta_0', 'r_inv', 'a', 'b', 'gamma_g']#, 'eta_g', 'gamma_g']
@@ -505,14 +514,16 @@ figs[1].savefig(cart_figs + 'resu_gro2_E.pdf')
 import pickle
 
 # %%
-with open('results_neweq1_020426.p', 'wb') as filo:
+with open(cart_figs + f'results_{tag}.p', 'wb') as filo:
     pickle.dump([resu_groscen, resu_allscen], filo)
 
 # %%
 allobs['E']
 
 # %%
-[resu_groscen, resu_allscen] = pickle.load(open('results_neweq1_020426.p', 'rb'))
+#[resu_groscen, resu_allscen] = pickle.load(open('results_neweq1_020426.p', 'rb'))
+[resu_groscen, resu_allscen] = pickle.load(open(cart_figs + f'results_{tag}.p', 'rb'))
+
 
 # %%
 figs = lef.plot_resu(resu_groscen[6])
@@ -553,6 +564,7 @@ for i, (ax, resu, tit) in enumerate(zip(axs, resu_groscen[4:7], [f'Growth: {int(
         ax.set_yticks([])
 
     if i == 0: ax.legend()
+    ax.set_xlim((1995, 2105))
 
 ylim = ax.get_ylim()
 for ax in axs[:-1]:
@@ -941,7 +953,7 @@ costs = costs + costs2
 param_sets = param_sets + param_sets2
 
 # %%
-thres = min(costs)*1.5
+thres = min(costs)*cost_fact
 parset_low = []
 costs_low = []
 for co, parset in zip(costs, param_sets):
@@ -962,18 +974,34 @@ plt.tight_layout()
 
 fig.savefig(cart_figs + 'resu_tuning_paramvar.pdf')
 
-resu_sens_gro = dict()
+#### Compute ens
+if compute:
+    resu_sens_gro = dict()
 
-for gro in np.arange(0, 0.055, 0.005):
-    scen = all_growths[gro]/all_growths[gro].sel(year = 2000)
-    resu_sens_gro[gro] = []
+    for gro in np.arange(0, 0.055, 0.005):
+        scen = all_growths[gro]/all_growths[gro].sel(year = 2000)
+        resu_sens_gro[gro] = []
 
-    for co, parset in zip(costs, parset_low_ok):
-        inicond_recalc2 = lef.inicond_yr(year_ini, parset, adimensional = True, fcu = lef.fossil_capacity_util)
+        for co, parset in zip(costs, parset_low_ok):
+            inicond_recalc2 = lef.inicond_yr(year_ini, parset, adimensional = True, fcu = lef.fossil_capacity_util)
 
-        resuok = lef.run_model(inicond = inicond_recalc2, params = parset, n_iter = 101, verbose = True, rule = 'maxgreen', year_ini = year_ini, public_investment=public_investment, mu_state_scenario=mu_scen, scale_costs=scale_costs, gdp_type='custom', gdp_scenario=scen)
-        resu_sens_gro[gro].append(resuok)
+            resuok = lef.run_model(inicond = inicond_recalc2, params = parset, n_iter = 101, verbose = True, rule = 'maxgreen', year_ini = year_ini, public_investment=public_investment, mu_state_scenario=mu_scen, scale_costs=scale_costs, gdp_type='custom', gdp_scenario=scen)
+            resu_sens_gro[gro].append(resuok)
 
+    with open(cart_figs + 'resu_sens_gro.p', 'wb') as fi:
+        pickle.dump(resu_sens_gro, fi)
+else:
+    resu_sens_gro = pickle.load(open(cart_figs + 'resu_sens_gro.p', 'rb'))
+
+#### PLOTTING
+
+import matplotlib.cm as cm
+cma = cm.get_cmap('viridis_r')
+costok = np.array(costs_low)[oklow]
+costmap = (costok-min(costok))/(max(costok)-min(costok))
+cols = list(cma(costmap))
+
+alphas = list(0.5 + 0.5*(1 - costmap))
 
 # %%
 fig = plt.figure(figsize = (12, 8))
@@ -983,15 +1011,15 @@ for gro, col, lab, best, do in zip(np.arange(0., 0.055, 0.005), rainbow_palette_
     if not do: continue
     allresu = resu_sens_gro[gro]
     all_emiss = []
-    for re in allresu:
+    for re, alp in zip(allresu, alphas):
         emiss = lef.to_emissions(re['Ef'])
-        emiss.plot(color = col, lw = 0.1, alpha = 0.3)
+        emiss.plot(color = col, lw = 0.1, alpha = alp)
         all_emiss.append(emiss)
 
     #xr.concat(all_emiss, dim = 'member').mean('member').plot(color = col, lw = 2, label = lab)
     lef.to_emissions(best['Ef']).plot(color = col, lw = 2, label = lab, ls = '-')
     if max(best['Ef'].year.values) >= 2070: 
-        lef.to_emissions(best['Ef']).sel(year = slice(2070, 2070)).plot.scatter(color = col, s = 50, marker = '*', alpha = 0.5)
+        lef.to_emissions(best['Ef']).sel(year = slice(2070, 2070)).plot.scatter(color = col, s = 50, marker = '*', alpha = 0.8, zorder = 2, edgecolor = 'grey')
     
     #emiss_scen[gro] = lef.to_emissions(re['Ef'])
 
@@ -1007,30 +1035,37 @@ plt.legend()
 plt.grid()
 
 fig.savefig(cart_figs + 'resu_groscen_CO2emiss_paramvar.pdf')
+fig.savefig(cart_figs + 'resu_groscen_CO2emiss_paramvar.png', dpi = 150)
 
 # %%
-resu_sens_ssp = dict()
+##### COMPUTE WITH SSP
+if compute:
+    resu_sens_ssp = dict()
 
-for scen, ssp in zip(all_scen, [f'SSP{i+1}' for i in range(5)]):
-    resu_sens_ssp[ssp] = []
-    for co, parset in zip(costs, parset_low_ok):
-        inicond_recalc2 = lef.inicond_yr(year_ini, parset, adimensional = True, fcu = lef.fossil_capacity_util)
+    for scen, ssp in zip(all_scen, [f'SSP{i+1}' for i in range(5)]):
+        resu_sens_ssp[ssp] = []
+        for co, parset in zip(costs, parset_low_ok):
+            inicond_recalc2 = lef.inicond_yr(year_ini, parset, adimensional = True, fcu = lef.fossil_capacity_util)
 
-        resuok = lef.run_model(inicond = inicond_recalc2, params = parset, n_iter = 100, verbose = True, rule = 'maxgreen', year_ini = year_ini, public_investment=public_investment, mu_state_scenario=mu_scen, scale_costs=scale_costs, gdp_type='custom', gdp_scenario=scen)
-        resu_sens_ssp[ssp].append(resuok)
+            resuok = lef.run_model(inicond = inicond_recalc2, params = parset, n_iter = 100, verbose = True, rule = 'maxgreen', year_ini = year_ini, public_investment=public_investment, mu_state_scenario=mu_scen, scale_costs=scale_costs, gdp_type='custom', gdp_scenario=scen)
+            resu_sens_ssp[ssp].append(resuok)
 
+    with open(cart_figs + 'resu_sens_ssp.p', 'wb') as fi:
+        pickle.dump(resu_sens_ssp, fi)
+else:
+    resu_sens_ssp = pickle.load(open(cart_figs + 'resu_sens_ssp.p', 'rb'))
 # %%
 fig = plt.figure(figsize = (12, 8))
 
 labels = [f"Y from SSP{ssp}" for ssp in range(1, 6)]
-for ssp, col, lab, best in zip([f'SSP{i}' for i in range(1,6)], rainbow_palette[::-1], labels, resu_allscen):
+for ssp, col, alp, lab, best in zip([f'SSP{i}' for i in range(1,6)], rainbow_palette[::-1], alphas, labels, resu_allscen):
     allresu = resu_sens_ssp[ssp]
-    for re in allresu:
-        lef.to_emissions(re['Ef']).plot(color = col, lw = 0.1, alpha = 0.3)
+    for re, alp in zip(allresu, alphas):
+        lef.to_emissions(re['Ef']).plot(color = col, lw = 0.1, alpha = alp)
 
     lef.to_emissions(best['Ef']).plot(color = col, lw = 2, label = lab)
     if max(best['Ef'].year.values) >= 2070: 
-        lef.to_emissions(best['Ef']).sel(year = slice(2070, 2070)).plot.scatter(color = col, s = 50, marker = '*', alpha = 0.5)
+        lef.to_emissions(best['Ef']).sel(year = slice(2070, 2070)).plot.scatter(color = col, s = 50, marker = '*', alpha = 0.8, zorder = 2)
 
 # lef.to_emissions(resu_hist['Ef']).sel(year = slice(2000, 2023)).plot(color = 'grey')
 lef.co2.sel(year = slice(2000, None)).plot(color = 'black')
@@ -1043,29 +1078,53 @@ plt.ylabel('CO2 emissions (Gt/year)')
 plt.legend()
 plt.grid()
 
-fig.savefig(cart_figs + 'resu_sspscen_CO2emiss_paramvar.pdf')
+# fig.savefig(cart_figs + 'resu_sspscen_CO2emiss_paramvar.pdf')
+fig.savefig(cart_figs + 'resu_sspscen_CO2emiss_paramvar.png', dpi = 150)
 
-
-import matplotlib.cm as cm
-cma = cm.get_cmap('viridis_r')
-costok = np.array(costs_low)[oklow]
-costmap = (costok-min(costok))/(max(costok)-min(costok))
-cols = list(cma(costmap))
 
 # %%
-figs = lef.plot_resuvsobs_ds(resu_sens_gro[0.02], obs2, year_ok = slice(2000, 2024), greystyle=True, colors = cols)
+figs = lef.plot_resuvsobs_ds(resu_sens_gro[0.02], obs2, year_ok = slice(2000, 2024), greystyle=True, colors = cols, alphas = alphas, lw = 0.4)
 best_hist = resu_groscen[2].sel(year = slice(2000, 2024))
-ax = figs[0].gca()
-best_hist.Ig_ratio.plot(ax = ax, color = 'orange', zorder = 1)
-ax = figs[1].gca()
-best_hist.Eg_ratio.plot(ax = ax, color = 'orange', zorder = 1)
-ax = figs[2].gca()
-best_hist.E.plot(ax = ax, color = 'orange', zorder = 1)
 
-figs[0].savefig(cart_figs + 'resu_hist_Ig_ratio_ens.pdf')
-figs[1].savefig(cart_figs + 'resu_hist_Eg_ratio_ens.pdf')
-figs[2].savefig(cart_figs + 'resu_hist_E_ens.pdf')
+for fig, ob in zip(figs, obs2):
+    ax = fig.gca()
+    best_hist[ob].plot(ax = ax, color = 'orange', zorder = 1)
+    fig.savefig(cart_figs + f'resu_hist_{ob}_ens.png', dpi = 150)
 
+
+fig = plt.figure(figsize = (12, 8))
+
+gro = 0.025
+plt.title(f'Growth: {int(1000*gro)/10} %')
+
+allresu = resu_sens_gro[gro]
+best = resu_groscen[5]
+
+all_emiss = []
+for re, col, alp in zip(allresu, cols, alphas):
+    emiss = lef.to_emissions(re['Ef'])
+    emiss.plot(color = col, lw = 0.5, alpha = alp)
+    all_emiss.append(emiss)
+
+#xr.concat(all_emiss, dim = 'member').mean('member').plot(color = col, lw = 2, label = lab)
+lef.to_emissions(best['Ef']).plot(color = 'orange', lw = 2, label = lab, ls = '-')
+if max(best['Ef'].year.values) >= 2070: 
+    lef.to_emissions(best['Ef']).sel(year = slice(2070, 2070)).plot.scatter(color = 'orange', s = 50, marker = '*', alpha = 0.8, zorder = 2, edgecolor = 'grey')
+
+    #emiss_scen[gro] = lef.to_emissions(re['Ef'])
+
+# lef.to_emissions(resu_hist['Ef']).sel(year = slice(2000, 2023)).plot(color = 'grey')
+lef.co2.sel(year = slice(2000, None)).plot(color = 'black')
+# lef.Eg_ratio.plot(label = 'obs', color = 'black')
+
+plt.ylim(-5, 65.)
+
+plt.xlabel('year')
+plt.ylabel('CO2 emissions (Gt/year)')
+plt.legend()
+plt.grid()
+
+fig.savefig(cart_figs + 'resu_gro25_CO2emiss_paramvar.png', dpi = 150)
 
 
 # # %% [markdown]
