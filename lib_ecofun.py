@@ -517,6 +517,38 @@ def estimate_a_from_investment(timedelta = 2):
     return a.data, b.data
 
 
+def estimate_a_from_investment_wdelta(delta = 0.01):
+    """
+    This is to estimate a from investment data (WEI 2025) and energy trends, also consider delta (which was not in previous function).
+
+    Considering only timedelta = 1.
+    """
+    allobs = define_obs(None)
+    allobs_dim = define_obs(None, adimensional = False)
+
+    deltaE = (allobs['Ef'].sel(year = 2024) - allobs['Ef'].sel(year = 2015))
+    E0 = allobs['Ef'].sel(year = 2015)
+    n = 10
+    I_tot = allobs['If'].sel(year = slice(2015, 2024)).sum()
+    fut = 0.8
+
+    a_estim = (deltaE * (1 + delta*n/2) + delta*n*E0)/(fut * I_tot)
+    a_estim_abs = a_estim * allobs_dim['E'].sel(year = 2000)/allobs_dim['Y'].sel(year = 2000)
+    print(f'delta {delta}   ->   adim: {a_estim.values:6.2f} - dim: {a_estim_abs.values:6.2f}')
+
+    deltaE = (allobs['Eg'].sel(year = 2024) - allobs['Eg'].sel(year = 2015))
+    E0 = allobs['Eg'].sel(year = 2015)
+    n = 10
+    I_tot = allobs['Ig'].sel(year = slice(2015, 2024)).sum()
+    fut = 1.
+
+    a_estim_g = (deltaE * (1 + delta*n/2) + delta*n*E0)/(fut * I_tot)
+    a_estim_g_abs = a_estim_g * allobs_dim['E'].sel(year = 2000)/allobs_dim['Y'].sel(year = 2000)
+    print(f'delta {delta}   ->   adim: {a_estim_g.values:6.2f} - dim: {a_estim_g_abs.values:6.2f}')
+    
+    return a_estim, a_estim_g
+
+
 def gamma_prime(year, gamma = 0.3):
     """
     To convert energy price to adimensional gamma. Assuming that useful energy is thermal_efficiency_factor * primary/substituted energy.
@@ -653,7 +685,7 @@ def E_price(Eg, Ef, Kg, Kf, gamma_g, gamma_f, a, b, ref_util_f = 0.8, alpha_util
         gamma_f_dyn = gamma_f * ((Ef/(b * Kf))/ref_util_f)**alpha_util
 
         if same_price:
-            mean_price = np.mean([Eg*gamma_g_dyn, Ef*gamma_f_dyn])/(Eg+Ef)
+            mean_price = (Eg*gamma_g_dyn + Ef*gamma_f_dyn)/(Eg+Ef)
             gamma_g_dyn, gamma_f_dyn = mean_price, mean_price
 
         gamma_g_dyn = max(min_price*gamma_g, gamma_g_dyn)
@@ -689,6 +721,7 @@ def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_
     f_heavy = params['f_heavy']
 
     alpha_util = params['alpha_util'] if 'alpha_util' in params else 1.2
+    min_price = params['min_price'] if 'min_price' in params else 0.5
     etamax = 0.9
 
     ## public inv
@@ -733,7 +766,7 @@ def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_
         Sg = 0
         Sf = 0
 
-    gamma_g_dyn, gamma_f_dyn = E_price(Eg, Ef, Kg, Kf, gamma_g, gamma_f, a, b, alpha_util = alpha_util, dynamic_price = dynamic_price, same_price = same_price)
+    gamma_g_dyn, gamma_f_dyn = E_price(Eg, Ef, Kg, Kf, gamma_g, gamma_f, a, b, alpha_util = alpha_util, dynamic_price = dynamic_price, same_price = same_price, min_price = min_price)
     Pg = gamma_g_dyn * (Eg - Cg) + Sg # Sg should act on Cg and be limited to it? no, also investment in infrastructuree
     Pf = gamma_f_dyn * (Ef - Cf) + Sf
     ### PRIVATE INVESTMENT

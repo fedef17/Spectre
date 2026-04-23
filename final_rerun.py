@@ -35,9 +35,9 @@ gdp_fit = ok_gdp # xr.DataArray(spezzata, coords={"year": ok_gdp.year}, dims="ye
 absolute_obs = False
 cost_fact = 1.5
 
-do_dualfit = True
-do_diffevofit = True
-plot_temp_scen = False
+do_dualfit = False
+do_diffevofit = False
+plot_temp_scen = True
 compute = True # runs the model on the best fits for plotting. !!! FALSE DOES NOT WORK -> random pick with no seed
 ###############################################################################################
 
