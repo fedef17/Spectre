@@ -573,11 +573,11 @@ def GDP(Y, growth = 0.01, deltaY = 0, invert_time = False, gdp_type = 'exponenti
 
     return Y
 
-def to_emissions(Ef):
+def to_emissions(Ef, CO2_obs = 38.1, Ef_obs = 1.369):
     """
-    Convert fossil energy to CO2 emissions
+    Convert fossil energy to CO2 emissions. Simple scaling using values for a reference year (2023).
     """
-    return 38.*Ef/Ef.sel(year = 2023)
+    return CO2_obs*(Ef/Ef_obs)
 
 
 def plot_cdf_beta(beta_0, prof_ratio, delta_sig):
@@ -641,7 +641,7 @@ def prod_cost(Eg, eta_g, h_g, etamax, E_crit = 1, scale_costs = True):
     return Cg
 
 
-def E_price(Eg, Ef, Kg, Kf, gamma_g, gamma_f, a, b, ref_util_f = 0.8, alpha_util = 1.2, min_price = 0.5, dynamic_price = True, same_price = True):
+def E_price(Eg, Ef, Kg, Kf, gamma_g, gamma_f, a, b, ref_util_f = 0.8, alpha_util = 1.5, min_price = 0.5, dynamic_price = True, same_price = True):
     """
     Computes the energy price related to capacity utilization.
     alpha_util: elasticity of energy price wrt capacity utilization
@@ -649,11 +649,11 @@ def E_price(Eg, Ef, Kg, Kf, gamma_g, gamma_f, a, b, ref_util_f = 0.8, alpha_util
     if not dynamic_price:
         return gamma_g, gamma_f
     else:
-        gamma_g_dyn = gamma_g * (Eg/(a * Kg))**alpha_util # useless since green is always at max capacity
+        gamma_g_dyn = gamma_g # * (Eg/(a * Kg))**alpha_util # useless since green is always at max capacity
         gamma_f_dyn = gamma_f * ((Ef/(b * Kf))/ref_util_f)**alpha_util
 
         if same_price:
-            mean_price = np.mean([gamma_g_dyn, gamma_f_dyn])
+            mean_price = np.mean([Eg*gamma_g_dyn, Ef*gamma_f_dyn])/(Eg+Ef)
             gamma_g_dyn, gamma_f_dyn = mean_price, mean_price
 
         gamma_g_dyn = max(min_price*gamma_g, gamma_g_dyn)
@@ -733,7 +733,7 @@ def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_
         Sg = 0
         Sf = 0
 
-    gamma_g_dyn, gamma_f_dyn = E_price(Eg, Ef, Kg, Kf, gamma_g, gamma_f, a, b, alpha_util = alpha_util, dynamic_price = dynamic_price)
+    gamma_g_dyn, gamma_f_dyn = E_price(Eg, Ef, Kg, Kf, gamma_g, gamma_f, a, b, alpha_util = alpha_util, dynamic_price = dynamic_price, same_price = same_price)
     Pg = gamma_g_dyn * (Eg - Cg) + Sg # Sg should act on Cg and be limited to it? no, also investment in infrastructuree
     Pf = gamma_f_dyn * (Ef - Cf) + Sf
     ### PRIVATE INVESTMENT

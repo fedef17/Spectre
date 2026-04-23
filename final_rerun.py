@@ -32,6 +32,8 @@ tag = 'gdp_current_1804_wI_dynprice'
 ok_gdp = lef.gdp.sel(year = slice(2000, None))
 gdp_fit = ok_gdp # xr.DataArray(spezzata, coords={"year": ok_gdp.year}, dims="year")
 
+cost_fact = 1.5
+
 do_dualfit = False
 do_diffevofit = False
 compute = True # runs the model on the best fits for plotting. !!! FALSE DOES NOT WORK -> random pick with no seed
@@ -213,7 +215,7 @@ params_fit['eps'] = 0.33
 params_fit['alpha_util'] = 1.5
 dynamic_price = True
 if dynamic_price:
-    print(f'Using dynamic price with alpha util = {params_fit['alpha_util']}')
+    print(f"Using dynamic price with alpha util = {params_fit['alpha_util']}")
 
 scale_costs = True
 same_price = True
@@ -345,7 +347,7 @@ if not do_dualfit:
 # %%
 resu_allscen = []
 for scen in all_scen:
-    resuok = lef.run_model(inicond = inicond_recalc, params = params_fit, n_iter = 100, verbose = True, rule = 'maxgreen', year_ini = year_ini, public_investment=public_investment, mu_state_scenario=mu_scen, scale_costs=scale_costs, gdp_type='custom', gdp_scenario=scen)
+    resuok = lef.run_model(inicond = inicond_recalc, params = params_fit, n_iter = 100, verbose = True, rule = 'maxgreen', year_ini = year_ini, public_investment=public_investment, mu_state_scenario=mu_scen, scale_costs=scale_costs, gdp_type='custom', gdp_scenario=scen, dynamic_price=dynamic_price)
     resu_allscen.append(resuok)
 
 # %%
@@ -379,7 +381,7 @@ resu_groscen = []
 for gro in np.arange(0., 0.055, 0.005):
     print(gro)
     scen = all_growths[gro]/all_growths[gro].sel(year = 2000)
-    resuok = lef.run_model(inicond = inicond_recalc, params = params_fit, n_iter = 101, verbose = True, rule = 'maxgreen', year_ini = year_ini, public_investment=public_investment, mu_state_scenario=mu_scen, scale_costs=scale_costs, gdp_type='custom', gdp_scenario=scen)
+    resuok = lef.run_model(inicond = inicond_recalc, params = params_fit, n_iter = 101, verbose = True, rule = 'maxgreen', year_ini = year_ini, public_investment=public_investment, mu_state_scenario=mu_scen, scale_costs=scale_costs, gdp_type='custom', gdp_scenario=scen, dynamic_price=dynamic_price)
     resu_groscen.append(resuok)
 
 # %%
@@ -493,15 +495,9 @@ figs[1].savefig(cart_figs + 'resu_gro2_E.pdf')
 
 # %%
 import pickle
-
-# %%
 with open(cart_figs + f'results_{tag}.p', 'wb') as filo:
     pickle.dump([resu_groscen, resu_allscen], filo)
 
-# %%
-allobs['E']
-
-# %%
 #[resu_groscen, resu_allscen] = pickle.load(open('results_neweq1_020426.p', 'rb'))
 [resu_groscen, resu_allscen] = pickle.load(open(cart_figs + f'results_{tag}.p', 'rb'))
 
@@ -645,6 +641,8 @@ fair.__version__
 
 # %% [markdown]
 # ### Create model
+
+# random.seed(13571113)
 
 # %%
 def extend_dataarray_to_2100(da, extend_to_year = 2100, time_dim = 'year'):
@@ -862,6 +860,15 @@ fig.gca().set_ylim(0, 4.2)
 
 fig.savefig(cart_figs + 'resu_sspscen_temperature.pdf')
 
+
+######################################################################################################################
+######################################################################################################################
+####
+####                             Repeat with ensembles
+####
+######################################################################################################################
+######################################################################################################################
+
 # Example
 costs, param_sets = lef.parse_file_with_params(cart_figs + 'dual_output.log')
 costs2, param_sets2 = lef.parse_file_with_params(cart_figs + 'diffevo_output.log')
@@ -905,7 +912,7 @@ if compute:
         for co, parset in zip(costs, parset_low_ok):
             inicond_recalc2 = lef.inicond_yr(year_ini, parset, adimensional = True, fcu = lef.fossil_capacity_util)
 
-            resuok = lef.run_model(inicond = inicond_recalc2, params = parset, n_iter = 101, verbose = True, rule = 'maxgreen', year_ini = year_ini, public_investment=public_investment, mu_state_scenario=mu_scen, scale_costs=scale_costs, gdp_type='custom', gdp_scenario=scen)
+            resuok = lef.run_model(inicond = inicond_recalc2, params = parset, n_iter = 101, verbose = True, rule = 'maxgreen', year_ini = year_ini, public_investment=public_investment, mu_state_scenario=mu_scen, scale_costs=scale_costs, gdp_type='custom', gdp_scenario=scen, dynamic_price=dynamic_price)
             resu_sens_gro[gro].append(resuok)
 
     with open(cart_figs + 'resu_sens_gro.p', 'wb') as fi:
@@ -967,7 +974,7 @@ if compute:
         for co, parset in zip(costs, parset_low_ok):
             inicond_recalc2 = lef.inicond_yr(year_ini, parset, adimensional = True, fcu = lef.fossil_capacity_util)
 
-            resuok = lef.run_model(inicond = inicond_recalc2, params = parset, n_iter = 100, verbose = True, rule = 'maxgreen', year_ini = year_ini, public_investment=public_investment, mu_state_scenario=mu_scen, scale_costs=scale_costs, gdp_type='custom', gdp_scenario=scen)
+            resuok = lef.run_model(inicond = inicond_recalc2, params = parset, n_iter = 100, verbose = True, rule = 'maxgreen', year_ini = year_ini, public_investment=public_investment, mu_state_scenario=mu_scen, scale_costs=scale_costs, gdp_type='custom', gdp_scenario=scen, dynamic_price=dynamic_price)
             resu_sens_ssp[ssp].append(resuok)
 
     with open(cart_figs + 'resu_sens_ssp.p', 'wb') as fi:
