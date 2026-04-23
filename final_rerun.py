@@ -27,7 +27,7 @@ gdp2 = lef.read_gdp_owid()
 #gdp_fit = ok_gdp # xr.DataArray(spezzata, coords={"year": ok_gdp.year}, dims="year")
 
 #tag = 'gdp_current_1804_ext/'
-tag = 'gdp_current_1804_wI/'
+tag = 'gdp_current_1804_wI_dynprice/'
 ok_gdp = lef.gdp.sel(year = slice(2000, None))
 gdp_fit = ok_gdp # xr.DataArray(spezzata, coords={"year": ok_gdp.year}, dims="year")
 
@@ -199,6 +199,13 @@ params_fit = params_prime.copy()
 params_fit['eta_g'] = 0.2
 params_fit['eta_f'] = 0.2
 params_fit['eps'] = 0.33
+
+# print('Updating delta to 0.005!')
+# params_fit['delta_g'] = 0.005
+# params_fit['delta_f'] = 0.005
+params_fit['alpha_util'] = 1.5
+dynamic_price = True
+
 scale_costs = True
 same_price = True
 recalc_inicond = True
@@ -317,41 +324,10 @@ if do_diffevofit:
 ###############################################################################################################################
 #### Read fit result
 
-def parse_parameter_file(filename):
-    params_fit = {}
-    inicond_recalc = {}
-    
-    with open(filename, 'r') as f:
-        lines = f.readlines()
-    
-    current_section = None
-    for line in lines:
-        line = line.strip()
-        
-        if line == 'PARAMS:':
-            current_section = 'params'
-        elif line == 'INICOND:':
-            current_section = 'inicond'
-        elif line and current_section:
-            # Parse key-value pairs (assuming space-separated)
-            parts = line.split()
-            if len(parts) >= 2:
-                key = parts[0]
-                try:
-                    value = float(parts[1]) if '.' in parts[1] else int(parts[1])
-                except ValueError:
-                    value = parts[1]  # Keep as string if not numeric
-                
-                if current_section == 'params':
-                    params_fit[key] = value
-                elif current_section == 'inicond':
-                    inicond_recalc[key] = value
-    
-    return params_fit, inicond_recalc
 
 if not do_dualfit:
     print('Reading fit result...')
-    params_fit, inicond_recalc = parse_parameter_file(cart_figs + 'final_results_dual.log')
+    params_fit, inicond_recalc = lef.parse_parameter_file(cart_figs + 'final_results_dual.log')
     print("Params:", params_fit)
     print("Inicond:", inicond_recalc)
 
@@ -877,70 +853,9 @@ fig.gca().set_ylim(0, 4.2)
 
 fig.savefig(cart_figs + 'resu_sspscen_temperature.pdf')
 
-
-# %%
-import ast
-
-# %%
-def read_cost_params(filepath: str) -> tuple[list, list]:
-    """Read a file of Cost/params lines, returning lists of costs and param dicts."""
-    costs, params = [], []
-    with open(filepath) as f:
-        for line in f:
-            cost = float(line.split("Cost:")[1].split("params:")[0].strip())
-            param_dict = ast.literal_eval(line.split("params:")[1].strip())
-            costs.append(cost)
-            params.append(param_dict)
-    return costs, params
-
-import re
-import ast
-import numpy as np
-
-def parse_cost_and_params_line(line):
-    # Extract the dictionary part
-    match = re.search(r'params:\s*(\{.*\})', line)
-    if not match:
-        return None, None
-    
-    # Extract cost
-    cost_match = re.search(r'Cost:\s*([\d.]+)', line)
-    cost = float(cost_match.group(1)) if cost_match else None
-    
-    # Get the dictionary string
-    dict_str = match.group(1)
-    
-    # Replace np.float64(...) with just the number
-    dict_str = re.sub(r'np\.float64\(([^)]+)\)', r'\1', dict_str)
-    
-    # Now safely evaluate
-    try:
-        params_dict = ast.literal_eval(dict_str)
-    except:
-        # If that fails, use eval with numpy in namespace
-        params_dict = eval(dict_str, {"np": np, "__builtins__": None})
-    
-    return cost, params_dict
-
-# Usage with file
-def parse_file_with_params(filename):
-    costs = []
-    param_sets = []
-    
-    with open(filename, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if line.startswith('Cost:'):
-                cost, params = parse_cost_and_params_line(line)
-                if params:
-                    costs.append(cost)
-                    param_sets.append(params)
-    
-    return costs, param_sets
-
 # Example
-costs, param_sets = parse_file_with_params(cart_figs + 'dual_output.log')
-costs2, param_sets2 = parse_file_with_params(cart_figs + 'diffevo_output.log')
+costs, param_sets = lef.parse_file_with_params(cart_figs + 'dual_output.log')
+costs2, param_sets2 = lef.parse_file_with_params(cart_figs + 'diffevo_output.log')
 
 # %%
 # costs, param_sets = read_cost_params(cart_figs + 'dual_output.log')
