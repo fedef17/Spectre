@@ -34,8 +34,9 @@ gdp_fit = ok_gdp # xr.DataArray(spezzata, coords={"year": ok_gdp.year}, dims="ye
 
 cost_fact = 1.5
 
-do_dualfit = False
-do_diffevofit = False
+do_dualfit = True
+do_diffevofit = True
+plot_temp_scen = False
 compute = True # runs the model on the best fits for plotting. !!! FALSE DOES NOT WORK -> random pick with no seed
 ###############################################################################################
 
@@ -110,8 +111,6 @@ params_prime_range = {
  'delta_sig': (0.2, 1.),
   'a': (0.5, 1.1), # 0.8 is obs with delta = 0.01
   'b': (0.6, 1.2), # 0.9 is obs with delta = 0.01
-# 'a': (0.3, 1.1), # extended low
-# 'b': (0.3, 1.1), # extended high
  'gamma_f': (0.1, 0.7),
  'gamma_g': (0.1, 0.7),
  'eta_g': (0.1, 0.95),
@@ -622,243 +621,243 @@ fig.savefig(cart_figs + 'energy_prod_SSP1.pdf')
 # %% [markdown]
 # ## Now: convert to temperature scenarios
 
-# %%
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
+if plot_temp_scen:
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import pandas as pd
 
-import os
+    import os
 
-from fair import FAIR
-from fair.interface import fill, initialise
-from fair.io import read_properties
+    from fair import FAIR
+    from fair.interface import fill, initialise
+    from fair.io import read_properties
 
-import random
+    import random
 
-# %%
-import fair
-fair.__version__
+    # %%
+    import fair
+    fair.__version__
 
-# %% [markdown]
-# ### Create model
+    # %% [markdown]
+    # ### Create model
 
-# random.seed(13571113)
+    # random.seed(13571113)
 
-# %%
-def extend_dataarray_to_2100(da, extend_to_year = 2100, time_dim = 'year'):
-    """Extend a yearly DataArray to 2100 by repeating the last year's values."""
-    last_year_data = da.isel({time_dim: -1})
-    last_year = int(da[time_dim].values[-1])
-    
-    new_years = np.arange(last_year + 1, extend_to_year + 1)
-    repeated = xr.concat([last_year_data] * len(new_years), dim=time_dim)
-    repeated[time_dim] = new_years
+    # %%
+    def extend_dataarray_to_2100(da, extend_to_year = 2100, time_dim = 'year'):
+        """Extend a yearly DataArray to 2100 by repeating the last year's values."""
+        last_year_data = da.isel({time_dim: -1})
+        last_year = int(da[time_dim].values[-1])
+        
+        new_years = np.arange(last_year + 1, extend_to_year + 1)
+        repeated = xr.concat([last_year_data] * len(new_years), dim=time_dim)
+        repeated[time_dim] = new_years
 
-    return xr.concat([da, repeated], dim=time_dim)
+        return xr.concat([da, repeated], dim=time_dim)
 
-# %%
-emiss_scen_ok = dict()
-for ke in emiss_scen:
-    print(ke)
-    if ke not in [0.045]:
-        if isinstance(ke, float):
-            nuke = f'gro{int(ke*1000)/10}'
-        else:
-            nuke = ke
-        if emiss_scen[ke].year[-1] < 2100: 
-            ds = extend_dataarray_to_2100(emiss_scen[ke])
-        else:
-            ds = emiss_scen[ke] 
-        emiss_scen_ok[nuke] = ds.sel(year = slice(2025, None))/ds.sel(year = 2025)
-
-
-# %%
-# Define number of ensemble members
-n_ens = 20
-ok_config = 'central' #f.define_configs(['high', 'central', 'low'])
-allscen = list(emiss_scen_ok.keys()) # This has to be a list!!
-ens_names = ['ens{:03d}'.format(i) for i in range(n_ens)]
-
-y_end = 2100
-y_ini = 2025
-
-f = FAIR()
-f.define_time(1750, y_end, 1)
-f.define_scenarios(allscen)
-f.define_configs(['ens{:03d}'.format(i) for i in range(n_ens)])
-
-# Select only basic species
-species, properties = read_properties('fair_data/species_configs_properties.csv')
-properties['CH4']['input_mode'] = 'emissions' # Set ch4 and n2o in emission mode
-properties['N2O']['input_mode'] = 'emissions'
-f.define_species(species, properties)
-
-# For all species run:
-# species_all, properties_all = read_properties()
-
-# Defines the model
-f.allocate()
-
-f.fill_species_configs('fair_data/species_configs_properties.csv')
-
-# %% [markdown]
-# ### Select parameters and create ensemble
-
-# %%
-# Step 1: Read the existing CSV file
-input_file = 'fair_data/basic_run_example/configs_ensemble.csv'  # Specify your input file name
-df = pd.read_csv(input_file)
-
-# Step 2: Extract the central sensitivity setup (high, central, low)
-params = df[df.iloc[:, 0] == 'central']
-
-random_seeds = np.array([random.randint(1, int(1e7)) for i in range(n_ens)])
-new_data = {col: [params[col].values[0]] * n_ens if col != 'seed' else random_seeds for col in df.columns}
-new_data['Unnamed: 0'] = ens_names # names
-ensemble = pd.DataFrame(new_data)
+    # %%
+    emiss_scen_ok = dict()
+    for ke in emiss_scen:
+        print(ke)
+        if ke not in [0.045]:
+            if isinstance(ke, float):
+                nuke = f'gro{int(ke*1000)/10}'
+            else:
+                nuke = ke
+            if emiss_scen[ke].year[-1] < 2100: 
+                ds = extend_dataarray_to_2100(emiss_scen[ke])
+            else:
+                ds = emiss_scen[ke] 
+            emiss_scen_ok[nuke] = ds.sel(year = slice(2025, None))/ds.sel(year = 2025)
 
 
-if not os.path.exists('fair_data/ensemble/'): os.mkdir('fair_data/ensemble/')
-output_file = f'fair_data/ensemble/configs_central_n{n_ens}.csv'  # Specify your output file name
-ensemble.to_csv(output_file, index=False)
+    # %%
+    # Define number of ensemble members
+    n_ens = 20
+    ok_config = 'central' #f.define_configs(['high', 'central', 'low'])
+    allscen = list(emiss_scen_ok.keys()) # This has to be a list!!
+    ens_names = ['ens{:03d}'.format(i) for i in range(n_ens)]
 
-print(f"\nNew data written to {output_file}")
+    y_end = 2100
+    y_ini = 2025
+
+    f = FAIR()
+    f.define_time(1750, y_end, 1)
+    f.define_scenarios(allscen)
+    f.define_configs(['ens{:03d}'.format(i) for i in range(n_ens)])
+
+    # Select only basic species
+    species, properties = read_properties('fair_data/species_configs_properties.csv')
+    properties['CH4']['input_mode'] = 'emissions' # Set ch4 and n2o in emission mode
+    properties['N2O']['input_mode'] = 'emissions'
+    f.define_species(species, properties)
+
+    # For all species run:
+    # species_all, properties_all = read_properties()
+
+    # Defines the model
+    f.allocate()
+
+    f.fill_species_configs('fair_data/species_configs_properties.csv')
+
+    # %% [markdown]
+    # ### Select parameters and create ensemble
+
+    # %%
+    # Step 1: Read the existing CSV file
+    input_file = 'fair_data/basic_run_example/configs_ensemble.csv'  # Specify your input file name
+    df = pd.read_csv(input_file)
+
+    # Step 2: Extract the central sensitivity setup (high, central, low)
+    params = df[df.iloc[:, 0] == 'central']
+
+    random_seeds = np.array([random.randint(1, int(1e7)) for i in range(n_ens)])
+    new_data = {col: [params[col].values[0]] * n_ens if col != 'seed' else random_seeds for col in df.columns}
+    new_data['Unnamed: 0'] = ens_names # names
+    ensemble = pd.DataFrame(new_data)
 
 
-# %%
-f.override_defaults(f'fair_data/ensemble/configs_central_n{n_ens}.csv')
+    if not os.path.exists('fair_data/ensemble/'): os.mkdir('fair_data/ensemble/')
+    output_file = f'fair_data/ensemble/configs_central_n{n_ens}.csv'  # Specify your output file name
+    ensemble.to_csv(output_file, index=False)
 
-# %% [markdown]
-# ### Emissions
+    print(f"\nNew data written to {output_file}")
 
-# %%
-emission_all = pd.read_csv('/home/fedef/Research/git/explore-extensions/data/emissions/extensions_1750-2500.csv')
 
-anni_hist = [('{:6.1f}'.format(i+0.5)) for i in range(1750, y_ini-1)]
-print(np.unique(emission_all['scenario']))
+    # %%
+    f.override_defaults(f'fair_data/ensemble/configs_central_n{n_ens}.csv')
 
-emissions = dict()
-for cos in ['CO2 FFI', 'CO2 AFOLU', 'Sulfur', 'CH4', 'N2O']:
-    emissions[cos] = emission_all[(emission_all['variable'] == cos) & (emission_all['scenario'] == 'medium-overshoot')][anni_hist].values.squeeze()
-    #print(emissions[cos].shape)
+    # %% [markdown]
+    # ### Emissions
 
-# %%
-ifut = y_end - y_ini +1
+    # %%
+    emission_all = pd.read_csv('/home/fedef/Research/git/explore-extensions/data/emissions/extensions_1750-2500.csv')
 
-fut_emiss = emiss_scen_ok
+    anni_hist = [('{:6.1f}'.format(i+0.5)) for i in range(1750, y_ini-1)]
+    print(np.unique(emission_all['scenario']))
 
-for scen in allscen:
+    emissions = dict()
     for cos in ['CO2 FFI', 'CO2 AFOLU', 'Sulfur', 'CH4', 'N2O']:
-        # if cos != 'CO2 FFI':
-        #     f.emissions.loc[{'specie': cos, 'scenario': scen}] = np.vstack(n_ens * [np.append(emissions[cos], np.zeros(76))]).T
-        # else:
-        # Now all emissions are proportional to the CO2 FFI
-        f.emissions.loc[{'specie': cos, 'scenario': scen}] = np.vstack(n_ens * [np.append(emissions[cos], emissions[cos][-1]*fut_emiss[scen])]).T
+        emissions[cos] = emission_all[(emission_all['variable'] == cos) & (emission_all['scenario'] == 'medium-overshoot')][anni_hist].values.squeeze()
+        #print(emissions[cos].shape)
 
-f.forcing.loc[{'specie': 'Volcanic'}] = 0.
-# f.concentration.loc[{'specie': 'CH4'}] = 1900.
-# f.concentration.loc[{'specie': 'N2O'}] = 336.
+    # %%
+    ifut = y_end - y_ini +1
 
-# %%
-# Starting from pre-industrial
-from fair.interface import initialise
+    fut_emiss = emiss_scen_ok
 
-for cos in ['CO2', 'CH4', 'N2O']:
-    initialise(f.concentration, f.species_configs.loc[{'specie': cos}].baseline_concentration[0], specie=cos)
+    for scen in allscen:
+        for cos in ['CO2 FFI', 'CO2 AFOLU', 'Sulfur', 'CH4', 'N2O']:
+            # if cos != 'CO2 FFI':
+            #     f.emissions.loc[{'specie': cos, 'scenario': scen}] = np.vstack(n_ens * [np.append(emissions[cos], np.zeros(76))]).T
+            # else:
+            # Now all emissions are proportional to the CO2 FFI
+            f.emissions.loc[{'specie': cos, 'scenario': scen}] = np.vstack(n_ens * [np.append(emissions[cos], emissions[cos][-1]*fut_emiss[scen])]).T
 
-initialise(f.forcing, 0.)
-initialise(f.temperature, 0.)
-initialise(f.cumulative_emissions, 0.)
-initialise(f.ocean_heat_content_change, 0.)
+    f.forcing.loc[{'specie': 'Volcanic'}] = 0.
+    # f.concentration.loc[{'specie': 'CH4'}] = 1900.
+    # f.concentration.loc[{'specie': 'N2O'}] = 336.
 
-# %%
-f.run()
+    # %%
+    # Starting from pre-industrial
+    from fair.interface import initialise
 
-# %%
-f.cumulative_emissions.config
+    for cos in ['CO2', 'CH4', 'N2O']:
+        initialise(f.concentration, f.species_configs.loc[{'specie': cos}].baseline_concentration[0], specie=cos)
 
-# %%
-for scen in allscen:
-    f.cumulative_emissions.sel(specie = 'CO2 FFI', scenario = scen, config = 'ens000').sel(timebounds = slice(2000, None)).plot()
-    plt.legend()
+    initialise(f.forcing, 0.)
+    initialise(f.temperature, 0.)
+    initialise(f.cumulative_emissions, 0.)
+    initialise(f.ocean_heat_content_change, 0.)
 
-# %%
-rainbow_palette = [
-    "#D70000",  # Dark Red
-    "#E56000",  # Dark Orange
-    "#FFC700",  # Gold
-    "#008700",  # Dark Green
-    "#0057A0",  # Dark Blue
-    "#4B0082"   # Indigo (Dark Purple)
-]
+    # %%
+    f.run()
 
-# %%
-#colors = ['steelblue', 'orange', 'forestgreen', 'indianred', 'violet']
-colors = rainbow_palette[::-1]
+    # %%
+    f.cumulative_emissions.config
 
-# %%
-def plot_scen(scenlist, colors, istart = 2000, iend = y_end, yave = 5, do_rolling = True, alpha = 0.2, y_shade_ini = 2025, labels = None):
-    iro = 0
-    if do_rolling: iro = yave
+    # %%
+    for scen in allscen:
+        f.cumulative_emissions.sel(specie = 'CO2 FFI', scenario = scen, config = 'ens000').sel(timebounds = slice(2000, None)).plot()
+        plt.legend()
 
-    if labels is None: labels = scenlist
+    # %%
+    rainbow_palette = [
+        "#D70000",  # Dark Red
+        "#E56000",  # Dark Orange
+        "#FFC700",  # Gold
+        "#008700",  # Dark Green
+        "#0057A0",  # Dark Blue
+        "#4B0082"   # Indigo (Dark Purple)
+    ]
 
-    fig, ax = plt.subplots(figsize = (16,9))
-    for scen, col, lab in zip(scenlist, colors, labels):
-        mean = f.temperature.sel(scenario = scen, layer = 0, timebounds = slice(y_ini-iro, iend+iro)).mean(['config'])
-        std = f.temperature.sel(scenario = scen, layer = 0, timebounds = slice(y_ini-iro, iend+iro)).std(['config'])
+    # %%
+    #colors = ['steelblue', 'orange', 'forestgreen', 'indianred', 'violet']
+    colors = rainbow_palette[::-1]
+
+    # %%
+    def plot_scen(scenlist, colors, istart = 2000, iend = y_end, yave = 5, do_rolling = True, alpha = 0.2, y_shade_ini = 2025, labels = None):
+        iro = 0
+        if do_rolling: iro = yave
+
+        if labels is None: labels = scenlist
+
+        fig, ax = plt.subplots(figsize = (16,9))
+        for scen, col, lab in zip(scenlist, colors, labels):
+            mean = f.temperature.sel(scenario = scen, layer = 0, timebounds = slice(y_ini-iro, iend+iro)).mean(['config'])
+            std = f.temperature.sel(scenario = scen, layer = 0, timebounds = slice(y_ini-iro, iend+iro)).std(['config'])
+            if do_rolling:
+                mean = mean.rolling(timebounds = yave, min_periods=yave//2, center=True).mean().sel(timebounds = slice(y_ini, iend))
+                std = std.rolling(timebounds = yave, min_periods=yave//2, center=True).mean().sel(timebounds = slice(y_ini, iend))
+
+            ax.fill_between(f.temperature.timebounds.sel(timebounds = slice(y_shade_ini, iend)), (mean-std).sel(timebounds = slice(y_shade_ini, iend)), (mean+std).sel(timebounds = slice(y_shade_ini, iend)), color = col, alpha=alpha, edgecolor = 'none')
+            ax.plot(f.temperature.timebounds.sel(timebounds = slice(y_ini, iend)), mean, color = col, lw = 3, label = lab)
+
+        mean = f.temperature.sel(layer = 0, timebounds = slice(istart-iro, y_shade_ini+1+iro)).mean(['config', 'scenario'])
+        std = f.temperature.sel(layer = 0, timebounds = slice(istart-iro, y_shade_ini+1+iro)).std(['config', 'scenario'])
         if do_rolling:
-            mean = mean.rolling(timebounds = yave, min_periods=yave//2, center=True).mean().sel(timebounds = slice(y_ini, iend))
-            std = std.rolling(timebounds = yave, min_periods=yave//2, center=True).mean().sel(timebounds = slice(y_ini, iend))
+            mean = mean.rolling(timebounds = yave, min_periods=yave//2, center=True).mean().sel(timebounds = slice(istart, y_shade_ini+1))
+            std = std.rolling(timebounds = yave, min_periods=yave//2, center=True).mean().sel(timebounds = slice(istart, y_shade_ini+1))
 
-        ax.fill_between(f.temperature.timebounds.sel(timebounds = slice(y_shade_ini, iend)), (mean-std).sel(timebounds = slice(y_shade_ini, iend)), (mean+std).sel(timebounds = slice(y_shade_ini, iend)), color = col, alpha=alpha, edgecolor = 'none')
-        ax.plot(f.temperature.timebounds.sel(timebounds = slice(y_ini, iend)), mean, color = col, lw = 3, label = lab)
+        col = 'grey'
+        ax.fill_between(f.temperature.timebounds.sel(timebounds = slice(istart,y_shade_ini+1)), (mean-std).sel(timebounds = slice(istart,y_shade_ini+1)), (mean+std).sel(timebounds = slice(istart,y_shade_ini+1)), color = col, alpha=alpha, edgecolor = 'none')
+        ax.plot(f.temperature.timebounds.sel(timebounds = slice(istart,y_ini+1)), mean.sel(timebounds = slice(istart,y_ini+1)), label = 'hist', color = col, lw = 3)
 
-    mean = f.temperature.sel(layer = 0, timebounds = slice(istart-iro, y_shade_ini+1+iro)).mean(['config', 'scenario'])
-    std = f.temperature.sel(layer = 0, timebounds = slice(istart-iro, y_shade_ini+1+iro)).std(['config', 'scenario'])
-    if do_rolling:
-        mean = mean.rolling(timebounds = yave, min_periods=yave//2, center=True).mean().sel(timebounds = slice(istart, y_shade_ini+1))
-        std = std.rolling(timebounds = yave, min_periods=yave//2, center=True).mean().sel(timebounds = slice(istart, y_shade_ini+1))
+        ax.axhline(1.5, color = 'red', ls = ':', lw = 0.5)
+        #plt.title('Temperature change')
+        plt.xlabel('year')
+        plt.ylabel('Temperature anomaly (K)')
+        plt.legend()
+        plt.grid(color='gray', linestyle=':', linewidth=0.5)    
 
-    col = 'grey'
-    ax.fill_between(f.temperature.timebounds.sel(timebounds = slice(istart,y_shade_ini+1)), (mean-std).sel(timebounds = slice(istart,y_shade_ini+1)), (mean+std).sel(timebounds = slice(istart,y_shade_ini+1)), color = col, alpha=alpha, edgecolor = 'none')
-    ax.plot(f.temperature.timebounds.sel(timebounds = slice(istart,y_ini+1)), mean.sel(timebounds = slice(istart,y_ini+1)), label = 'hist', color = col, lw = 3)
-
-    ax.axhline(1.5, color = 'red', ls = ':', lw = 0.5)
-    #plt.title('Temperature change')
-    plt.xlabel('year')
-    plt.ylabel('Temperature anomaly (K)')
-    plt.legend()
-    plt.grid(color='gray', linestyle=':', linewidth=0.5)    
-
-    return fig
+        return fig
 
 
-colors = [col for col, do in zip(rainbow_palette_9[::-1], do_all) if do]
+    colors = [col for col, do in zip(rainbow_palette_9[::-1], do_all) if do]
 
-istart = 2000
-iend = 2100
-yave = 5
-do_rolling = True
+    istart = 2000
+    iend = 2100
+    yave = 5
+    do_rolling = True
 
-labels = [f'Growth: {int(1000*gro)/10} %' for gro in np.arange(0, 0.045, 0.005)[np.where(do_all)]]
+    labels = [f'Growth: {int(1000*gro)/10} %' for gro in np.arange(0, 0.045, 0.005)[np.where(do_all)]]
 
-fig = plot_scen(allscen[:6], colors, istart, iend, yave, do_rolling, alpha = 0.1, labels = labels)
-fig.gca().set_ylim(0, 4.2)
+    fig = plot_scen(allscen[:6], colors, istart, iend, yave, do_rolling, alpha = 0.1, labels = labels)
+    fig.gca().set_ylim(0, 4.2)
 
-fig.savefig(cart_figs + 'resu_groscen_temperature.pdf')
+    fig.savefig(cart_figs + 'resu_groscen_temperature.pdf')
 
-# %%
-istart = 2000
-iend = 2100
-yave = 5
-do_rolling = True
+    # %%
+    istart = 2000
+    iend = 2100
+    yave = 5
+    do_rolling = True
 
-labels = [f"Y from SSP{ssp}" for ssp in range(1, 6)]
-fig = plot_scen(allscen[-5:], rainbow_palette_5[::-1], istart, iend, yave, do_rolling, alpha = 0.1, y_shade_ini = 2025, labels = labels)
-fig.gca().set_ylim(0, 4.2)
+    labels = [f"Y from SSP{ssp}" for ssp in range(1, 6)]
+    fig = plot_scen(allscen[-5:], rainbow_palette_5[::-1], istart, iend, yave, do_rolling, alpha = 0.1, y_shade_ini = 2025, labels = labels)
+    fig.gca().set_ylim(0, 4.2)
 
-fig.savefig(cart_figs + 'resu_sspscen_temperature.pdf')
+    fig.savefig(cart_figs + 'resu_sspscen_temperature.pdf')
 
 
 ######################################################################################################################
@@ -1077,10 +1076,104 @@ plt.title('Production cost per unit energy (energy units)')
 fig.savefig(cart_figs + 'cost_energy_ratio_gro2.pdf')
 
 
-# # %%
-# resu_delta_m20 = []
-# resu_delta_p20 = []
 
+#### Now check with different deltas
+
+print('delta check!')
+
+params_prime_range = {
+ 'growth': (0.01, 0.05),
+ 'delta_sig': (0.2, 1.),
+  'a': (0.5, 1.1), # 0.8 is obs with delta = 0.01
+  'b': (0.6, 1.2), # 0.9 is obs with delta = 0.01
+ 'gamma_f': (0.1, 0.7),
+ 'gamma_g': (0.1, 0.7),
+ 'eta_g': (0.1, 0.95),
+ 'eta_f': (0.1, 0.95),
+ 'r_inv': (0.05, 0.5),
+ 'beta_0': (-0.5, 0.5)}
+params_prime_range['eps'] = (0.2, 0.6)
+
+params_prime_range_delta05 = params_prime_range.copy()
+params_prime_range_delta05['a'] = (0.4, 1.1)
+params_prime_range_delta05['b'] = (0.4, 1.1)
+
+params_prime_range_delta15 = params_prime_range.copy()
+params_prime_range_delta15['a'] = (0.5, 1.2)
+params_prime_range_delta15['b'] = (0.8, 1.5)
+
+parnames = ['eps', 'delta_sig', 'beta_0', 'r_inv', 'a', 'b', 'gamma_g', 'eta_g']
+same_costs = True
+
+# %%
+print('Updating delta to 0.005!')
+params_fit_delta05 = params_fit.copy()
+params_fit_delta05['delta_g'] = 0.005
+params_fit_delta05['delta_f'] = 0.005
+params_fit_delta05['alpha_util'] = 1.5
+
+params_fit_delta15 = params_fit.copy()
+params_fit_delta15['delta_g'] = 0.015
+params_fit_delta15['delta_f'] = 0.015
+params_fit_delta15['alpha_util'] = 1.5
+
+resu = dict()
+runs = dict()
+
+do_deltacheck = True
+if do_deltacheck:
+    for namo, parfit, parrange in zip([0.005, 0.015], [params_fit_delta05, params_fit_delta15], [params_prime_range_delta05, params_prime_range_delta15]):
+        bounds = [parrange[par] for par in parnames]
+        inicond_recalc = inicond.copy()
+        scen = all_scen[1] # SSP2
+
+        print("Starting dual annealing...")
+        resu = dual_annealing(lef.cost_function, bounds, args = (parnames, parfit, year_ini, inicond_recalc, verbose, obs2, obs_weights2, public_investment, mu_scen, same_costs, scale_costs, same_price, recalc_inicond, None, 'custom', scen, dynamic_price))#, callback = callback_wrapper_dual)
+
+        print(f'AAAAAAAAAAAAAAA dual: {resu.fun:6.3f}  ', resu.x)
+
+        for par, parval in zip(parnames, resu.x):
+            parfit[par] = parval
+            
+        if same_price: parfit['gamma_f'] = parfit['gamma_g']
+        if same_costs: parfit['eta_f'] = parfit['eta_g']
+
+        inicond_recalc = lef.inicond_yr(year_ini, parfit, adimensional = True, fcu = lef.fossil_capacity_util)
+
+        resu[namo] = (inicond_recalc, parfit)
+
+        runs[namo] = []
+        for gro in np.arange(0., 0.055, 0.005):
+            print(gro)
+            scen = all_growths[gro]/all_growths[gro].sel(year = 2000)
+            resuok = lef.run_model(inicond = inicond_recalc, params = parfit, n_iter = 101, verbose = True, rule = 'maxgreen', year_ini = year_ini, public_investment=public_investment, mu_state_scenario=mu_scen, scale_costs=scale_costs, gdp_type='custom', gdp_scenario=scen, dynamic_price=dynamic_price)
+            runs[namo].append(resuok)
+
+    
+    fig, axs = plt.subplots(1, 2, figsize = (15,6))
+
+    for ax, resus, tit in zip(axs, [runs[0.005], runs[0.015]], ['$\delta_{g,f}$ decreased by 50%', '$\delta_{g,f}$ increased by 50%']):
+        for i, (gro, col, do) in enumerate(zip(np.arange(0., 0.055, 0.005), rainbow_palette_9[::-1], do_all)):
+            if not do: continue
+
+            re1 = resu_groscen[i]
+            lef.to_emissions(re1['Ef']).plot(ax = ax, color = col, ls = ':')
+
+            re2 = resus[i]
+            lef.to_emissions(re2['Ef']).plot(ax = ax, color = col)
+
+        lef.co2.sel(year = slice(2000, None)).plot(ax = ax, color = 'black')
+
+        ax.set_ylim(0, 120)
+        ax.set_xlabel('year')
+        ax.set_ylabel('CO2 emissions (Gt/year)')
+        ax.set_title(tit)
+        plt.legend()
+        plt.grid()
+
+    fig.savefig(cart_figs + 'deltasens_CO2emiss.pdf')
+
+# # %%
 # for gro in np.arange(0, 0.055, 0.005):
 #     scen = all_growths[gro]/all_growths[gro].sel(year = 2000)
 
@@ -1189,29 +1282,4 @@ fig.savefig(cart_figs + 'cost_energy_ratio_gro2.pdf')
 #     resu_delta_p50.append(resuok)
 
 
-# fig, axs = plt.subplots(1, 2, figsize = (15,6))
-# # fig = plt.figure(figsize = (12, 8))
 
-# for ax, resus, tit in zip(axs, [resu_delta_m50, resu_delta_p50], ['$\delta_{g,f}$ decreased by 50%', '$\delta_{g,f}$ increased by 50%']):
-#     for i, (gro, col) in enumerate(zip(np.arange(0., 0.055, 0.005), rainbow_palette_10[::-1])):
-#         re1 = resu_groscen[i]
-#         lef.to_emissions(re1['Ef']).plot(ax = ax, color = col, ls = ':')
-
-#         re2 = resus[i]
-#         lef.to_emissions(re2['Ef']).plot(ax = ax, color = col)
-#         # re3 = resu_delta_p20[i]
-#         # lef.to_emissions(re3['Ef']).plot(color = col, ls = ':')
-#         #emiss_scen[gro] = lef.to_emissions(re['Ef'])
-
-#     # lef.to_emissions(resu_hist['Ef']).sel(year = slice(2000, 2023)).plot(color = 'grey')
-#     lef.co2.sel(year = slice(2000, None)).plot(ax = ax, color = 'black')
-#     # lef.Eg_ratio.plot(label = 'obs', color = 'black')
-
-#     ax.set_ylim(0, 120)
-#     ax.set_xlabel('year')
-#     ax.set_ylabel('CO2 emissions (Gt/year)')
-#     ax.set_title(tit)
-#     plt.legend()
-#     plt.grid()
-
-# fig.savefig(cart_figs + 'deltasens_CO2emiss.pdf')
