@@ -22,17 +22,18 @@ reload(lef)
 
 gdp2 = lef.read_gdp_owid()
 
-#tag = 'gdp_noinfl_1804_ext/'
+#tag = 'gdp_noinfl_1804_ext'
 #ok_gdp = gdp2.sel(year = slice(2000, None))
 #gdp_fit = ok_gdp # xr.DataArray(spezzata, coords={"year": ok_gdp.year}, dims="year")
 
-#tag = 'gdp_current_1804_ext/'
-tag = 'gdp_current_1804_wI_dynprice/'
+#tag = 'gdp_current_1804_ext'
+absolute_obs = False
+tag = 'gdp_current_1804_wI_dynprice'
 ok_gdp = lef.gdp.sel(year = slice(2000, None))
 gdp_fit = ok_gdp # xr.DataArray(spezzata, coords={"year": ok_gdp.year}, dims="year")
 
-do_dualfit = True
-do_diffevofit = True
+do_dualfit = False
+do_diffevofit = False
 compute = True # runs the model on the best fits for plotting. !!! FALSE DOES NOT WORK -> random pick with no seed
 ###############################################################################################
 
@@ -105,8 +106,8 @@ params_prime['b'] = lef.a_prime(year_ini, a = params['b'])
 params_prime_range = {
  'growth': (0.01, 0.05),
  'delta_sig': (0.2, 1.),
-  'a': (0.6, 1.1),
-  'b': (0.3, 0.8),
+  'a': (0.5, 1.1), # 0.8 is obs with delta = 0.01
+  'b': (0.6, 1.2), # 0.9 is obs with delta = 0.01
 # 'a': (0.3, 1.1), # extended low
 # 'b': (0.3, 1.1), # extended high
  'gamma_f': (0.1, 0.7),
@@ -184,8 +185,13 @@ fig.savefig(cart_figs + 'GDP_SSP_scaling_ok.pdf')
 
 # obs2 = lef.define_obs(['E', 'Eg_ratio', 'Ig_ratio'], year_ref = year_ini)
 # obs_weights2 = {'E': 1, 'Eg_ratio': 10, 'Ig_ratio': 1}
-obs2 = lef.define_obs(['E', 'Eg_ratio', 'Ig_ratio', 'I'], year_ref = year_ini)
-obs_weights2 = {'E': 1, 'Eg_ratio': 10, 'Ig_ratio': 1, 'I': 1}
+
+if not absolute_obs:
+    obs2 = lef.define_obs(['E', 'Eg_ratio', 'Ig_ratio', 'I'], year_ref = year_ini)
+    obs_weights2 = {'E': 1, 'Eg_ratio': 10, 'Ig_ratio': 1, 'I': 1}
+else:
+    obs2 = lef.define_obs(['Eg', 'Ef', 'Ig', 'If'], year_ref = year_ini)
+    obs_weights2 = {'Ef': 1, 'Eg': 1, 'Ig': 1, 'If': 1}
 
 # %%
 #parnames = ['growth', 'delta_sig', 'beta_0', 'r_inv', 'a', 'b', 'gamma_g']#, 'eta_g', 'gamma_g']
@@ -203,8 +209,11 @@ params_fit['eps'] = 0.33
 # print('Updating delta to 0.005!')
 # params_fit['delta_g'] = 0.005
 # params_fit['delta_f'] = 0.005
+
 params_fit['alpha_util'] = 1.5
 dynamic_price = True
+if dynamic_price:
+    print(f'Using dynamic price with alpha util = {params_fit['alpha_util']}')
 
 scale_costs = True
 same_price = True
