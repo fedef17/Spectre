@@ -985,7 +985,7 @@ else:
 fig = plt.figure(figsize = (12, 8))
 
 labels = [f"Y from SSP{ssp}" for ssp in range(1, 6)]
-for ssp, col, alp, lab, best in zip([f'SSP{i}' for i in range(1,6)], rainbow_palette[::-1], alphas, labels, resu_allscen):
+for ssp, col, alp, lab, best in zip([f'SSP{i}' for i in range(1,6)], rainbow_palette_5[::-1], alphas, labels, resu_allscen):
     allresu = resu_sens_ssp[ssp]
     for re, alp in zip(allresu, alphas):
         lef.to_emissions(re['Ef']).plot(color = col, lw = 0.1, alpha = alp)
