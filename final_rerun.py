@@ -23,19 +23,20 @@ reload(lef)
 gdp2 = lef.read_gdp_owid()
 
 #tag = 'gdp_noinfl_1804_ext'
-#ok_gdp = gdp2.sel(year = slice(2000, None))
-#gdp_fit = ok_gdp # xr.DataArray(spezzata, coords={"year": ok_gdp.year}, dims="year")
-
-#tag = 'gdp_current_1804_ext'
-absolute_obs = False
-tag = 'gdp_current_1804_wI_dynprice'
-ok_gdp = lef.gdp.sel(year = slice(2000, None))
+tag = 'gdp_noinfl_1804_wI_dynprice'
+ok_gdp = gdp2.sel(year = slice(2000, None))
 gdp_fit = ok_gdp # xr.DataArray(spezzata, coords={"year": ok_gdp.year}, dims="year")
 
+#tag = 'gdp_current_1804_ext'
+#tag = 'gdp_current_1804_wI_dynprice'
+#ok_gdp = lef.gdp.sel(year = slice(2000, None))
+#gdp_fit = ok_gdp # xr.DataArray(spezzata, coords={"year": ok_gdp.year}, dims="year")
+
+absolute_obs = False
 cost_fact = 1.5
 
-do_dualfit = False
-do_diffevofit = False
+do_dualfit = True
+do_diffevofit = True
 compute = True # runs the model on the best fits for plotting. !!! FALSE DOES NOT WORK -> random pick with no seed
 ###############################################################################################
 
