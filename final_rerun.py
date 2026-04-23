@@ -240,7 +240,7 @@ if do_dualfit:
 
     print("Starting dual annealing...")
     with redirect_output(cart_figs + 'dual_output.log'):
-        resu = dual_annealing(lef.cost_function, bounds, args = (parnames, params_fit, year_ini, inicond_recalc, verbose, obs2, obs_weights2, public_investment, mu_scen, same_costs, scale_costs, same_price, recalc_inicond, None, 'custom', scen))#, callback = callback_wrapper_dual)
+        resu = dual_annealing(lef.cost_function, bounds, args = (parnames, params_fit, year_ini, inicond_recalc, verbose, obs2, obs_weights2, public_investment, mu_scen, same_costs, scale_costs, same_price, recalc_inicond, None, 'custom', scen, dynamic_price))#, callback = callback_wrapper_dual)
 
     print(f'AAAAAAAAAAAAAAA dual: {resu.fun:6.3f}  ', resu.x)
 
@@ -288,7 +288,7 @@ if do_diffevofit:
     #         below_threshold.append((xk.copy(), cost))
     #     return False
         
-    model_args = (parnames, params_fit2, year_ini, inicond_recalc, verbose, obs2, obs_weights2, public_investment, mu_scen, same_costs, scale_costs, same_price, recalc_inicond, None, 'custom', scen)
+    model_args = (parnames, params_fit2, year_ini, inicond_recalc, verbose, obs2, obs_weights2, public_investment, mu_scen, same_costs, scale_costs, same_price, recalc_inicond, None, 'custom', scen, dynamic_price)
 
     print("Starting differential evolution...")
     # run diffevo with callback

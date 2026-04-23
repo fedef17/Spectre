@@ -641,7 +641,7 @@ def prod_cost(Eg, eta_g, h_g, etamax, E_crit = 1, scale_costs = True):
     return Cg
 
 
-def E_price(Eg, Ef, Kg, Kf, gamma_g, gamma_f, a, b, ref_util_f = 0.8, alpha_util = 1.2, dynamic_price = True, same_price = True):
+def E_price(Eg, Ef, Kg, Kf, gamma_g, gamma_f, a, b, ref_util_f = 0.8, alpha_util = 1.2, min_price = 0.5, dynamic_price = True, same_price = True):
     """
     Computes the energy price related to capacity utilization.
     alpha_util: elasticity of energy price wrt capacity utilization
@@ -654,9 +654,12 @@ def E_price(Eg, Ef, Kg, Kf, gamma_g, gamma_f, a, b, ref_util_f = 0.8, alpha_util
 
         if same_price:
             mean_price = np.mean([gamma_g_dyn, gamma_f_dyn])
-            return mean_price, mean_price
-        else:
-            return gamma_g_dyn, gamma_f_dyn
+            gamma_g_dyn, gamma_f_dyn = mean_price, mean_price
+
+        gamma_g_dyn = max(min_price*gamma_g, gamma_g_dyn)
+        gamma_f_dyn = max(min_price*gamma_f, gamma_f_dyn)
+        
+        return gamma_g_dyn, gamma_f_dyn
 
 
 def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_type = 'cdf', verbose = False, raise_bnd_err = False, deltaY = None, mu_state = 0.5, scale_costs = False, public_inv = False, gdp_type = 'exponential', gdp_scenario = None, year_scenario = None, energy_crisis_mode = False, Y_lost = 0, dynamic_price = False, same_price = True):
