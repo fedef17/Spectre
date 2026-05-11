@@ -23,14 +23,14 @@ reload(lef)
 gdp2 = lef.read_gdp_owid()
 
 #tag = 'gdp_noinfl_1804_ext'
-#tag = 'gdp_noinfl_1804_wI_dynprice'
-#ok_gdp = gdp2.sel(year = slice(2000, None))
-#gdp_fit = ok_gdp # xr.DataArray(spezzata, coords={"year": ok_gdp.year}, dims="year")
+tag = 'gdp_noinfl_1804_wI_dynprice'
+ok_gdp = gdp2.sel(year = slice(2000, None))
+gdp_fit = ok_gdp # xr.DataArray(spezzata, coords={"year": ok_gdp.year}, dims="year")
 
 #tag = 'gdp_current_1804_ext'
-tag = 'gdp_current_1804_wI_dynprice'
-ok_gdp = lef.gdp.sel(year = slice(2000, None))
-gdp_fit = ok_gdp # xr.DataArray(spezzata, coords={"year": ok_gdp.year}, dims="year")
+# tag = 'gdp_current_1804_wI_dynprice'
+# ok_gdp = lef.gdp.sel(year = slice(2000, None))
+# gdp_fit = ok_gdp # xr.DataArray(spezzata, coords={"year": ok_gdp.year}, dims="year")
 
 absolute_obs = False
 cost_fact = 1.5
@@ -285,6 +285,8 @@ if do_diffevofit:
     params_fit2['eta_g'] = 0.2
     params_fit2['eta_f'] = 0.2
     params_fit2['eps'] = 0.33
+    params_fit2['alpha_util'] = 1.5
+    
     scale_costs = True
     same_price = True
     recalc_inicond = True

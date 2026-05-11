@@ -327,9 +327,9 @@ def read_gdp_owid(filepath = f"{datadir}/global-gdp-over-the-long-run.csv"):
 
 
 
-def read_gdp_scenarios(filepath = f"{datadir}/global-gross-domestic-product.csv"):
+def read_gdp_scenarios(filepath = f"{datadir}/ssps_riahi2017/global-gross-domestic-product.csv"):
     """
-    Read gdp scenarios from OWID csv file (O'Neill scenarios).
+    Read gdp scenarios from OWID csv file (Riahi et al., 2017).
     """
 
     df = pd.read_csv(filepath, usecols=[0, 1, 2])
@@ -348,6 +348,47 @@ def read_gdp_scenarios(filepath = f"{datadir}/global-gross-domestic-product.csv"
     ds = xr.Dataset({col: xr.DataArray(df_pivot[col], dims="year") for col in df_pivot.columns})
 
     return ds/1e9
+
+
+def read_co2_scenarios(filepath = f"{datadir}/ssps_riahi2017/global-carbon-dioxide-emissions.csv", method = 'scaled'):
+    """
+    Read co2 scenarios from OWID csv file (Riahi et al., 2017).
+
+    co2 emiss in Gton
+
+    scenarios start in 2005 and are not in line with obs.
+    method can be: "original", "shifted" (emission are shifted to match year 2024), "scaled" (same but scaled)
+    """
+
+    df = pd.read_csv(filepath, usecols=[0, 1, 2])
+    df.columns = ["ssp", "year", "co2"]
+
+    # Pivot to wide format
+    df_pivot = df.pivot(index="year", columns="ssp", values="co2")
+    
+    # Reindex to every year and interpolate
+    all_years = range(df_pivot.index.min(), df_pivot.index.max() + 1)
+    df_pivot = df_pivot.reindex(all_years).interpolate(method="index")
+    
+    ds = xr.Dataset({col: xr.DataArray(df_pivot[col], dims="year") for col in df_pivot.columns})
+    ds = ds[['SSP1 - 1.9', 'SSP1 - 2.6', 'SSP1 - Baseline', 'SSP2 - 4.5', 'SSP2 - Baseline', 'SSP3 - 6.0', 'SSP3 - Baseline', 'SSP4 - Baseline', 'SSP5 - 6.0', 'SSP5 - Baseline']]
+    ds = ds/1e9
+
+    #for ssp, col in zip(ds.data_vars, rainbow_palette_10):
+    for ssp in ds.data_vars:
+        mismatch = ds[ssp].sel(year = 2024) - co2.sel(year = 2024)
+        misfact = ds[ssp].sel(year = 2024)/co2.sel(year = 2024)
+        
+        if method == 'shifted':
+            fitto = xr.concat([co2.sel(year = slice(2000, 2024)), ds[ssp].sel(year = slice(2025, None))-mismatch.values], dim = 'year')
+            ds[ssp] = fitto
+        elif method == 'scaled':
+            fitto2 = xr.concat([co2.sel(year = slice(2000, 2024)), ds[ssp].sel(year = slice(2025, None))/misfact.values], dim = 'year')
+            ds[ssp] = fitto2
+        else:
+            pass
+
+    return ds
 
 
 ### Other data not used in current version
