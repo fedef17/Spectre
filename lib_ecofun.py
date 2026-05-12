@@ -43,7 +43,7 @@ co2 = xr.load_dataset('co2_emiss_1750-2024.nc')['co2']
 
 #######################
 
-########## E_g/E, from 1965 to 2024 (source ourworldindata: https://ourworldindata.org/renewable-energy)
+########## Eg/E, from 1965 to 2024 (source ourworldindata: https://ourworldindata.org/renewable-energy)
 cose = [6.088109, 6.155143, 6.0675287, 6.03579, 5.978705, 5.8929, 5.9273896, 
         5.8859487, 5.6497455, 6.168147, 6.201238, 5.8808265, 5.8756404, 
         6.1209283, 6.2307334, 6.4362164, 6.6121817, 6.804729, 7.0058365, 
@@ -327,9 +327,9 @@ def read_gdp_owid(filepath = f"{datadir}/global-gdp-over-the-long-run.csv"):
 
 
 
-def read_gdp_scenarios(filepath = f"{datadir}/global-gross-domestic-product.csv"):
+def read_gdp_scenarios(filepath = f"{datadir}/ssps_riahi2017/global-gross-domestic-product.csv"):
     """
-    Read gdp scenarios from OWID csv file (O'Neill scenarios).
+    Read gdp scenarios from OWID csv file (Riahi et al., 2017).
     """
 
     df = pd.read_csv(filepath, usecols=[0, 1, 2])
@@ -348,6 +348,47 @@ def read_gdp_scenarios(filepath = f"{datadir}/global-gross-domestic-product.csv"
     ds = xr.Dataset({col: xr.DataArray(df_pivot[col], dims="year") for col in df_pivot.columns})
 
     return ds/1e9
+
+
+def read_co2_scenarios(filepath = f"{datadir}/ssps_riahi2017/global-carbon-dioxide-emissions.csv", method = 'scaled'):
+    """
+    Read co2 scenarios from OWID csv file (Riahi et al., 2017).
+
+    co2 emiss in Gton
+
+    scenarios start in 2005 and are not in line with obs.
+    method can be: "original", "shifted" (emission are shifted to match year 2024), "scaled" (same but scaled)
+    """
+
+    df = pd.read_csv(filepath, usecols=[0, 1, 2])
+    df.columns = ["ssp", "year", "co2"]
+
+    # Pivot to wide format
+    df_pivot = df.pivot(index="year", columns="ssp", values="co2")
+    
+    # Reindex to every year and interpolate
+    all_years = range(df_pivot.index.min(), df_pivot.index.max() + 1)
+    df_pivot = df_pivot.reindex(all_years).interpolate(method="index")
+    
+    ds = xr.Dataset({col: xr.DataArray(df_pivot[col], dims="year") for col in df_pivot.columns})
+    ds = ds[['SSP1 - 1.9', 'SSP1 - 2.6', 'SSP1 - Baseline', 'SSP2 - 4.5', 'SSP2 - Baseline', 'SSP3 - 6.0', 'SSP3 - Baseline', 'SSP4 - Baseline', 'SSP5 - 6.0', 'SSP5 - Baseline']]
+    ds = ds/1e9
+
+    #for ssp, col in zip(ds.data_vars, rainbow_palette_10):
+    for ssp in ds.data_vars:
+        mismatch = ds[ssp].sel(year = 2024) - co2.sel(year = 2024)
+        misfact = ds[ssp].sel(year = 2024)/co2.sel(year = 2024)
+        
+        if method == 'shifted':
+            fitto = xr.concat([co2.sel(year = slice(2000, 2024)), ds[ssp].sel(year = slice(2025, None))-mismatch.values], dim = 'year')
+            ds[ssp] = fitto
+        elif method == 'scaled':
+            fitto2 = xr.concat([co2.sel(year = slice(2000, 2024)), ds[ssp].sel(year = slice(2025, None))/misfact.values], dim = 'year')
+            ds[ssp] = fitto2
+        else:
+            pass
+
+    return ds
 
 
 ### Other data not used in current version
@@ -517,6 +558,38 @@ def estimate_a_from_investment(timedelta = 2):
     return a.data, b.data
 
 
+def estimate_a_from_investment_wdelta(delta = 0.01):
+    """
+    This is to estimate a from investment data (WEI 2025) and energy trends, also consider delta (which was not in previous function).
+
+    Considering only timedelta = 1.
+    """
+    allobs = define_obs(None)
+    allobs_dim = define_obs(None, adimensional = False)
+
+    deltaE = (allobs['Ef'].sel(year = 2024) - allobs['Ef'].sel(year = 2015))
+    E0 = allobs['Ef'].sel(year = 2015)
+    n = 10
+    I_tot = allobs['If'].sel(year = slice(2015, 2024)).sum()
+    fut = 0.8
+
+    a_estim = (deltaE * (1 + delta*n/2) + delta*n*E0)/(fut * I_tot)
+    a_estim_abs = a_estim * allobs_dim['E'].sel(year = 2000)/allobs_dim['Y'].sel(year = 2000)
+    print(f'delta {delta}   ->   adim: {a_estim.values:6.2f} - dim: {a_estim_abs.values:6.2f}')
+
+    deltaE = (allobs['Eg'].sel(year = 2024) - allobs['Eg'].sel(year = 2015))
+    E0 = allobs['Eg'].sel(year = 2015)
+    n = 10
+    I_tot = allobs['Ig'].sel(year = slice(2015, 2024)).sum()
+    fut = 1.
+
+    a_estim_g = (deltaE * (1 + delta*n/2) + delta*n*E0)/(fut * I_tot)
+    a_estim_g_abs = a_estim_g * allobs_dim['E'].sel(year = 2000)/allobs_dim['Y'].sel(year = 2000)
+    print(f'delta {delta}   ->   adim: {a_estim_g.values:6.2f} - dim: {a_estim_g_abs.values:6.2f}')
+    
+    return a_estim, a_estim_g
+
+
 def gamma_prime(year, gamma = 0.3):
     """
     To convert energy price to adimensional gamma. Assuming that useful energy is thermal_efficiency_factor * primary/substituted energy.
@@ -546,7 +619,7 @@ def sigmoid(x, delta = 1):
     return 1/(1+np.exp(-x/delta))
 
 
-def GDP(Y, growth = 0.01, deltaY = 0, invert_time = False, gdp_type = 'exponential', gdp_scenario = None, year = None):
+def GDP(Y, growth = 0.01, deltaY = 0, invert_time = False, gdp_type = 'exponential', gdp_scenario = None, year = None, Y_lost = 0):
     """
     Function that determines Y(t+1) given Y(t).
 
@@ -567,14 +640,17 @@ def GDP(Y, growth = 0.01, deltaY = 0, invert_time = False, gdp_type = 'exponenti
         if year is None: raise ValueError('year not set for custom Y')
         if gdp_scenario is None: raise ValueError('gdp_scenario not set for custom Y')
         Y = gdp_scenario.sel(year = year)
+    
+    if Y_lost > 0:
+        Y = Y - Y_lost
 
     return Y
 
-def to_emissions(Ef):
+def to_emissions(Ef, CO2_obs = 38.1, Ef_obs = 1.369):
     """
-    Convert fossil energy to CO2 emissions
+    Convert fossil energy to CO2 emissions. Simple scaling using values for a reference year (2023).
     """
-    return 38.*Ef/Ef.sel(year = 2023)
+    return CO2_obs*(Ef/Ef_obs)
 
 
 def plot_cdf_beta(beta_0, prof_ratio, delta_sig):
@@ -620,10 +696,50 @@ def prof_ratio(Pg, Pf, Kg, Kf, small = 1e-5):
     return (Pg/Kg - Pf/Kf)/(Pg/Kg+Pf/Kf+small)
     #return (Pg/Kg - Pf/Kf)/((Pg+Pf)/(Kg+Kf))
 
+def prod_cost(Eg, eta_g, h_g, etamax, E_crit = 1, scale_costs = True):
+    """
+    Costs of energy production scale with volume. 
+    E_crit = 1 means E_crit = E0 for adimensional, which turns out to work well for the historical fall of green energy production costs.
+    """
+    Cg = 0
 
-def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_type = 'cdf', verbose = False, raise_bnd_err = False, deltaY = None, mu_state = 0.5, scale_costs = False, public_inv = False, gdp_type = 'exponential', gdp_scenario = None, year_scenario = None):
+    # func_cost = eta_g * Eg**h_g
+    func_cost = eta_g * (Eg/E_crit)**h_g
+
+    if scale_costs:
+        if Eg > 0: Cg = min([func_cost, etamax*Eg])
+    else:
+        Cg = eta_g * Eg
+
+    return Cg
+
+
+def E_price(Eg, Ef, Kg, Kf, gamma_g, gamma_f, a, b, ref_util_f = 0.8, alpha_util = 1.5, min_price = 0.5, dynamic_price = True, same_price = True):
+    """
+    Computes the energy price related to capacity utilization.
+    alpha_util: elasticity of energy price wrt capacity utilization
+    """
+    if not dynamic_price:
+        return gamma_g, gamma_f
+    else:
+        gamma_g_dyn = gamma_g # * (Eg/(a * Kg))**alpha_util # useless since green is always at max capacity
+        gamma_f_dyn = gamma_f * ((Ef/(b * Kf))/ref_util_f)**alpha_util
+
+        if same_price:
+            mean_price = (Eg*gamma_g_dyn + Ef*gamma_f_dyn)/(Eg+Ef)
+            gamma_g_dyn, gamma_f_dyn = mean_price, mean_price
+
+        gamma_g_dyn = max(min_price*gamma_g, gamma_g_dyn)
+        gamma_f_dyn = max(min_price*gamma_f, gamma_f_dyn)
+        
+        return gamma_g_dyn, gamma_f_dyn
+
+
+def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_type = 'cdf', verbose = False, raise_bnd_err = False, deltaY = None, mu_state = 0.5, scale_costs = False, public_inv = False, gdp_type = 'exponential', gdp_scenario = None, year_scenario = None, energy_crisis_mode = False, Y_lost = 0, dynamic_price = False, same_price = True):
     """
     Expansion with public investment. Public investment is directed as subsidies, which reduce firms' costs, hence increasing their profits.
+
+    energy_crises_mode: goes on when scarcity is reached, reducing gdp accordingly. 
     """
     success = 0
 
@@ -644,6 +760,9 @@ def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_
     delta_g = params['delta_g']
     delta_f = params['delta_f']
     f_heavy = params['f_heavy']
+
+    alpha_util = params['alpha_util'] if 'alpha_util' in params else 1.2
+    min_price = params['min_price'] if 'min_price' in params else 0.5
     etamax = 0.9
 
     ## public inv
@@ -662,30 +781,20 @@ def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_
     ### improve: energy demand is not all the same. energy for fossil-fuel cars, heavy industry, gas heating,... must be fossil. Electricity generation can easily be both. Converting fossil-locked energy demand to green energy demand requires converting the downstream infrastructure as well, which requires more investment (and more energy..). This could be represented through the "fossil_constraint" strategy.
 
     ## Satisfying energy demand through green and fossil energy production. 
-    Eg, Ef, success = define_Eg(E, Kg, Kf, a, b, f_heavy, Y, rule = rule, verbose = False, success = success)
-    
-    if E == Eg: 
-        if verbose: print('Transition completed!')
-        success = 1
+    Eg, Ef, success = define_Eg(E, Kg, Kf, a, b, f_heavy, Y, rule = rule, verbose = verbose, success = success)
+
+    if energy_crisis_mode and success == 2:
+        E_missing = E - (Ef + Eg)
+        Y_lost += E_missing/eps # This is the cumulative Y lost due to energy shortages
+        print(f'Energy crisis mode: reducing Y due to energy constraints. E missing: {E_missing}, Y lost: {Y_lost}')
+
+        E = E - E_missing
+        Y = Y - Y_lost
 
     ### PUBLIC INVESTMENT
     ## Profit of energy production
-    Cg = 0
-    Cf = 0
-    if scale_costs:
-        if Eg > 0: Cg = min([eta_g * Eg**h_g, etamax*Eg])
-        if Ef > 0: Cf = min([eta_f * Ef**h_f, etamax*Ef])
-    else:
-        Cg = eta_g * Eg
-        Cf = eta_f * Ef
-
-    # This creates a discontinuity in the costs:
-    # if Pf < 0.: 
-    #     Pf = gamma_f * (1 - eta_f) * Ef + Sf # linearity for small Ef
-    #     Cf = eta_f*Ef
-    # if Pg < 0.: 
-    #     Pg = gamma_g * (1 - eta_g) * Eg + Sg # linearity for small Eg
-    #     Cg = eta_g*Eg
+    Cg = prod_cost(Eg, eta_g, h_g, etamax, scale_costs = scale_costs)
+    Cf = prod_cost(Ef, eta_f, h_f, etamax, scale_costs = scale_costs)
 
     if public_inv:
         S = r_inv_state * Y
@@ -698,8 +807,9 @@ def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_
         Sg = 0
         Sf = 0
 
-    Pg = gamma_g * (Eg - Cg) + Sg # Sg should act on Cg and be limited to it? no, also investment in infrastructuree
-    Pf = gamma_f * (Ef - Cf) + Sf
+    gamma_g_dyn, gamma_f_dyn = E_price(Eg, Ef, Kg, Kf, gamma_g, gamma_f, a, b, alpha_util = alpha_util, dynamic_price = dynamic_price, same_price = same_price, min_price = min_price)
+    Pg = gamma_g_dyn * (Eg - Cg) + Sg # Sg should act on Cg and be limited to it? no, also investment in infrastructuree
+    Pf = gamma_f_dyn * (Ef - Cf) + Sf
     ### PRIVATE INVESTMENT
 
     ## Investment in energy production
@@ -723,11 +833,11 @@ def forward_step(Y, Kg, Kf, params = default_params, rule = 'maxgreen', betafun_
     Kg = Ig + Kg * (1-delta_g)
     Kf = If + Kf * (1-delta_f)
 
-    Y = GDP(Y, growth = growth, deltaY = deltaY, gdp_type = gdp_type, gdp_scenario = gdp_scenario, year = year_scenario)
+    Y = GDP(Y, growth = growth, deltaY = deltaY, gdp_type = gdp_type, gdp_scenario = gdp_scenario, year = year_scenario, Y_lost = Y_lost)
 
     Kg, Kf, Eg, Ef, beta, E, Y = check_bounds(Kg, Kf, Eg, Ef, beta, E, Y, raise_err = raise_bnd_err)
 
-    return Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, Cg, Cf, success
+    return Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, Cg, Cf, Y_lost, success
 
 
 def el_ratio(mu_g, mu_f):
@@ -751,6 +861,11 @@ def define_Eg(E, Kg, Kf, a, b, f_heavy, Y, rule = 'maxgreen', verbose = True, su
         success = 2
         if verbose: print(f'Energy scarcity! {Eg_max} {Ef_max} {E}')
 
+        Eg = Eg_max
+        Ef = Ef_max
+        
+        return Eg, Ef, success
+
     if rule == 'maxgreen':
         Eg = Eg_max
         Ef = E-Eg
@@ -767,8 +882,8 @@ def define_Eg(E, Kg, Kf, a, b, f_heavy, Y, rule = 'maxgreen', verbose = True, su
             Ef = Ef_max
         Eg = E - Ef
     elif rule == 'whole_capacity': # This makes Y useless
-        Eg = Kg
-        Ef = Kf
+        Eg = Eg_max
+        Ef = Ef_max
     elif rule == 'fossil_constraint': # military and heavy industry keep using fossil
         Ef_min = f_heavy * Y
         if E-Ef_min < Eg_max:
@@ -777,6 +892,10 @@ def define_Eg(E, Kg, Kf, a, b, f_heavy, Y, rule = 'maxgreen', verbose = True, su
         else:
             Eg = Eg_max
             Ef = E-Eg
+    
+    if E == Eg: 
+        if verbose: print('Transition completed!')
+        success = 1
     
     return Eg, Ef, success
 
@@ -935,7 +1054,7 @@ def set_params(params, years, verbose = False):
     return okpar, allow_param_scenario
 
 
-def run_model(inicond = default_inicond, params = default_params, n_iter = 100, rule = 'maxgreen', betafun_type = 'cdf', verbose = True, run_backwards = False, raise_bnd_err = False, year_ini = None, extend_constant = False, deltaY = None, public_investment = False, mu_state_scenario = None, scale_costs = False, gdp_type = 'exponential', gdp_scenario = None):
+def run_model(inicond = default_inicond, params = default_params, n_iter = 100, rule = 'maxgreen', betafun_type = 'cdf', verbose = True, run_backwards = False, raise_bnd_err = False, year_ini = None, extend_constant = False, deltaY = None, public_investment = False, mu_state_scenario = None, scale_costs = False, gdp_type = 'exponential', gdp_scenario = None, energy_crisis_mode = False, dynamic_price = False, same_price = True):
     """
 
     Runs the model. Returns list of lists of outputs: [Y, Kg, Kf, E, Eg, Ef]  (can be improved!)
@@ -954,6 +1073,7 @@ def run_model(inicond = default_inicond, params = default_params, n_iter = 100, 
     Y = inicond['Y_ini']
     Kg = inicond['Kg_ini']
     Kf = inicond['Kf_ini']
+    Y_lost = 0
 
     years = np.arange(year_ini, year_ini + n_iter)
     params_ok, allow_param_scenario = set_params(params, years)
@@ -987,10 +1107,10 @@ def run_model(inicond = default_inicond, params = default_params, n_iter = 100, 
             ymax = mu_state_scenario.year.max().values
             yok = min(year_ini + i, ymax)
             mu_state = mu_state_scenario.sel(year = yok).values
-            
-            Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, Cg, Cf, success = forward_step(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err= raise_bnd_err, deltaY = deltaY, mu_state = mu_state, public_inv = True, scale_costs = scale_costs, gdp_type = gdp_type, gdp_scenario = gdp_scenario, year_scenario = year_ini + i+1)
         else:
-            Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, Cg, Cf, success = forward_step(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err= raise_bnd_err, deltaY = deltaY, public_inv = False, scale_costs = scale_costs, gdp_type = gdp_type, gdp_scenario = gdp_scenario, year_scenario = year_ini + i+1)
+            mu_state = None
+            
+        Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, Cg, Cf, Y_lost, success = forward_step(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err= raise_bnd_err, deltaY = deltaY, mu_state = mu_state, public_inv = public_investment, scale_costs = scale_costs, gdp_type = gdp_type, gdp_scenario = gdp_scenario, year_scenario = year_ini + i+1, energy_crisis_mode = energy_crisis_mode, Y_lost = Y_lost, dynamic_price = dynamic_price, same_price = same_price)
 
         # if run_backwards: # removed compatibility
         #     Y, Kg, Kf, E, Eg, Ef, Ig, If, Pg, Pf, Cg, Cf, success = backward_step(Y, Kg, Kf, params = okpar, verbose = verbose, rule = rule, betafun_type = betafun_type, raise_bnd_err=raise_bnd_err)
@@ -1003,7 +1123,10 @@ def run_model(inicond = default_inicond, params = default_params, n_iter = 100, 
             break
         elif success == 2:
             if verbose: print(f'Energy scarcity at time: {i}!')
-            break
+            if energy_crisis_mode:
+                if verbose: print('Energy crises mode: going on with reduced Y due to energy scarcity')
+            else:
+                break
     
     if extend_constant:
         if len(resu) < n_iter:
@@ -1080,6 +1203,7 @@ def rebuild_resu(resu, run_backwards = False):
     ok_resu['Ef'] = Ef
     ok_resu['Ig'] = Ig
     ok_resu['If'] = If
+    ok_resu['I'] = If + Ig
     ok_resu['Pg'] = Pg
     ok_resu['Pf'] = Pf
     ok_resu['Ig_ratio'] = Ig/(Ig+If)
@@ -1102,7 +1226,7 @@ def build_resu_ds(resu, year_ini):
     return ds
 
 
-def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'], params = default_params.copy(), year_ini = 2015, inicond = inicond_2015, verbose = False, obs = None, obs_weights = None, public_investment = False, mu_state_scenario = None, same_costs = False, scale_costs = False, same_price = False, recalc_inicond = False, deltaY = None, gdp_type = 'exponential', gdp_scenario = None, same_delta = False, param_bounds = None, break_on_scarcity = False, cost_low = 0.5):
+def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'], params = default_params.copy(), year_ini = 2015, inicond = inicond_2015, verbose = False, obs = None, obs_weights = None, public_investment = False, mu_state_scenario = None, same_costs = False, scale_costs = False, same_price = False, recalc_inicond = False, deltaY = None, gdp_type = 'exponential', gdp_scenario = None, dynamic_price = False, same_delta = False, param_bounds = None, break_on_scarcity = False, cost_low = 0.5):
     """
     Fit model to (year_ini - 2025) obs.obs
     """
@@ -1160,7 +1284,7 @@ def cost_function(parset, parnames = ['beta_0', 'gamma_g', 'growth', 'delta_sig'
     #                 print(f'Param {par} out of bounds')
     #                 return large
 
-    resu = run_model(inicond = inicond_ok, params = params, n_iter = n_iter, year_ini = year_ini, verbose = verbose, rule = 'maxgreen', extend_constant = True, deltaY = deltaY, public_investment = public_investment, mu_state_scenario = mu_state_scenario, scale_costs = scale_costs, gdp_type=gdp_type, gdp_scenario=gdp_scenario)
+    resu = run_model(inicond = inicond_ok, params = params, n_iter = n_iter, year_ini = year_ini, verbose = verbose, rule = 'maxgreen', extend_constant = True, deltaY = deltaY, public_investment = public_investment, mu_state_scenario = mu_state_scenario, scale_costs = scale_costs, gdp_type=gdp_type, gdp_scenario=gdp_scenario, dynamic_price = dynamic_price, same_price = same_price)
 
     cost = costfun(resu, obs, weights = obs_weights)
 
@@ -1400,7 +1524,7 @@ def costfun_hist(resu, year_ini = 2000, I_weight = 1., all_green = False):
     return I_weight * cost_I + cost_Eg
 
 
-def plot_resuvsobs_ds(resu, obs, year_ok = slice(2000, 2030), var_names = None, run_names = [], greystyle = False, colors = []):
+def plot_resuvsobs_ds(resu, obs, year_ok = slice(2000, 2030), var_names = None, run_names = [], greystyle = False, colors = [], alphas = [], lw = 0.2):
     """
     Generic plot function for whatever is inside obs. Resu is a dataset and obs is a dict of dataarrays with 'year' axis.
     """
@@ -1415,17 +1539,18 @@ def plot_resuvsobs_ds(resu, obs, year_ok = slice(2000, 2030), var_names = None, 
             if run_names == []:
                 run_names = [f'run {i}' for i in range(len(resu))]
 
-            if colors == []:
-                colors = [None]*len(resu)
+            if colors == []: colors = ['grey']*len(resu)
+            if alphas == []: alphas = [1]*len(resu)
 
-            for res, nam, col in zip(resu, run_names, colors):
+            for res, nam, col, alp in zip(resu, run_names, colors, alphas):
                 if not greystyle:
-                    resupl = res[var].sel(year = year_ok).plot(label = nam)
+                    resupl = res[var].sel(year = year_ok).plot(label = nam, zorder = 0)
                 else:
-                    if col is None: col = 'grey'
-                    resupl = res[var].sel(year = year_ok).plot(color = col, lw = 0.2)
+                    resupl = res[var].sel(year = year_ok).plot(color = col, lw = lw, zorder = 0, alpha = alp)
 
-        obspl = obs[var].sel(year = year_ok).plot(label = 'obs', color = 'black')
+        obspl = obs[var].sel(year = year_ok).plot(label = 'obs', color = 'black', zorder = 0, lw = 0.5)
+        if greystyle:
+            obs[var].sel(year = year_ok).plot.scatter(color = 'black', s = 50, zorder = 2, alpha = 0.7)
 
         plt.xlabel('year')
         if var_names is not None:
@@ -1576,6 +1701,60 @@ def plot_resu(resu, year_ini = None, title = None):
 
 ######## Tuning
 import re
+import ast
+
+def read_cost_params(filepath: str) -> tuple[list, list]:
+    """Read a file of Cost/params lines, returning lists of costs and param dicts."""
+    costs, params = [], []
+    with open(filepath) as f:
+        for line in f:
+            cost = float(line.split("Cost:")[1].split("params:")[0].strip())
+            param_dict = ast.literal_eval(line.split("params:")[1].strip())
+            costs.append(cost)
+            params.append(param_dict)
+    return costs, params
+
+def parse_cost_and_params_line(line):
+    # Extract the dictionary part
+    match = re.search(r'params:\s*(\{.*\})', line)
+    if not match:
+        return None, None
+    
+    # Extract cost
+    cost_match = re.search(r'Cost:\s*([\d.]+)', line)
+    cost = float(cost_match.group(1)) if cost_match else None
+    
+    # Get the dictionary string
+    dict_str = match.group(1)
+    
+    # Replace np.float64(...) with just the number
+    dict_str = re.sub(r'np\.float64\(([^)]+)\)', r'\1', dict_str)
+    
+    # Now safely evaluate
+    try:
+        params_dict = ast.literal_eval(dict_str)
+    except:
+        # If that fails, use eval with numpy in namespace
+        params_dict = eval(dict_str, {"np": np, "__builtins__": None})
+    
+    return cost, params_dict
+
+# Usage with file
+def parse_file_with_params(filename):
+    costs = []
+    param_sets = []
+    
+    with open(filename, 'r') as f:
+        for line in f:
+            line = line.strip()
+            if line.startswith('Cost:'):
+                cost, params = parse_cost_and_params_line(line)
+                if params:
+                    costs.append(cost)
+                    param_sets.append(params)
+    
+    return costs, param_sets
+
 
 def parse_line(line):
     """Parse a line and extract cost and params dict"""
@@ -1644,6 +1823,39 @@ def read_costs_from_log(filename):
         all_params.append(current_params)
     
     return all_costs, all_params
+
+
+def parse_parameter_file(filename):
+    params_fit = {}
+    inicond_recalc = {}
+    
+    with open(filename, 'r') as f:
+        lines = f.readlines()
+    
+    current_section = None
+    for line in lines:
+        line = line.strip()
+        
+        if line == 'PARAMS:':
+            current_section = 'params'
+        elif line == 'INICOND:':
+            current_section = 'inicond'
+        elif line and current_section:
+            # Parse key-value pairs (assuming space-separated)
+            parts = line.split()
+            if len(parts) >= 2:
+                key = parts[0]
+                try:
+                    value = float(parts[1]) if '.' in parts[1] else int(parts[1])
+                except ValueError:
+                    value = parts[1]  # Keep as string if not numeric
+                
+                if current_section == 'params':
+                    params_fit[key] = value
+                elif current_section == 'inicond':
+                    inicond_recalc[key] = value
+    
+    return params_fit, inicond_recalc
 
 
 def filter_costs(costs, params, percentile=10):
